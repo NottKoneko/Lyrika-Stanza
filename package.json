@@ -1,0 +1,10 @@
+{
+  "name": "lyrika-stanza",
+  "version": "1.0.0",
+  "description": "Live time-synced lyrics stream bot for Discord",
+  "main": "index.js",
+  "dependencies": {
+    "axios": "^1.7.2",
+    "discord.js": "^14.15.3"
+  }
+}

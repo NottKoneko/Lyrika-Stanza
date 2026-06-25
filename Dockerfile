@@ -9,7 +9,7 @@ WORKDIR /usr/src/app
 
 # Leverage caching for dependency layers
 COPY package*.json ./
-RUN npm ci --omit=dev && npm cache clean --force
+RUN npm install --omit=dev && npm cache clean --force
 
 # Copy application tracking loop engine code
 COPY . .
