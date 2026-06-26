@@ -11,3 +11,5 @@ services:
       - .env
     volumes:
       - /etc/localtime:/etc/localtime:ro
+      - ./.env:/usr/src/app/.env
+      - ./database.sqlite:/usr/src/app/database.sqlite
