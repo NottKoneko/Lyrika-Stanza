@@ -2,6 +2,7 @@ const { Client, GatewayIntentBits, EmbedBuilder, ActivityType, ActionRowBuilder,
 const axios = require('axios');
 const util = require('util');
 const path = require('path');
+const fs = require('fs');
 const sqlite3 = require('sqlite3').verbose(); // Using pure JS sqlite3
 
 // Initialize Discord Client
@@ -12,6 +13,25 @@ const client = new Client({
         GatewayIntentBits.MessageContent
     ]
 });
+// Fallback for generic hosts like Wispbyte that don't inject custom env vars: manually parse .env if it exists
+try {
+    const envPath = path.join(__dirname, '.env');
+    if (fs.existsSync(envPath)) {
+        const envFile = fs.readFileSync(envPath, 'utf8');
+        envFile.split('\n').forEach(line => {
+            const match = line.match(/^\s*([\w.-]+)\s*=\s*(.*)?\s*$/);
+            if (match) {
+                const key = match[1];
+                let value = match[2] || '';
+                if (value.startsWith('"') && value.endsWith('"')) value = value.slice(1, -1);
+                else if (value.startsWith("'") && value.endsWith("'")) value = value.slice(1, -1);
+                process.env[key] = value.trim();
+            }
+        });
+    }
+} catch (e) {
+    // Ignore if no .env file
+}
 
 // Load configuration
 const CONFIG = {
