@@ -15,7 +15,7 @@ const client = new Client({
 
 // Load configuration
 const CONFIG = {
-    TOKEN: (process.env.YOUR_DISCORD_BOT_TOKEN || process.env.DISCORD_TOKEN || process.env.BOT_TOKEN || '').trim(),
+    TOKEN: (process.env.YOUR_DISCORD_BOT_TOKEN || process.env.DISCORD_TOKEN || process.env.BOT_TOKEN || process.env.TOKEN || '').trim(),
     USER_AGENT: 'DiscordLyricsLiveVisualizer/2.0 (contact@yourdomain.com)'
 };
 
@@ -658,6 +658,8 @@ console.log(`[BOOT] Environment variable check:`);
 console.log(`  - YOUR_DISCORD_BOT_TOKEN: ${process.env.YOUR_DISCORD_BOT_TOKEN ? `defined (length: ${process.env.YOUR_DISCORD_BOT_TOKEN.length})` : 'undefined'}`);
 console.log(`  - DISCORD_TOKEN: ${process.env.DISCORD_TOKEN ? `defined (length: ${process.env.DISCORD_TOKEN.length})` : 'undefined'}`);
 console.log(`  - BOT_TOKEN: ${process.env.BOT_TOKEN ? `defined (length: ${process.env.BOT_TOKEN.length})` : 'undefined'}`);
+console.log(`  - TOKEN: ${process.env.TOKEN ? `defined (length: ${process.env.TOKEN.length})` : 'undefined'}`);
+console.log(`[BOOT] All environment keys present: [${Object.keys(process.env).join(', ')}]`);
 console.log(`[BOOT] Resolved CONFIG.TOKEN length: ${CONFIG.TOKEN.length}`);
 
 if (CONFIG.TOKEN.length === 0) {
