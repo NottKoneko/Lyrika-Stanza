@@ -1,7 +1,6 @@
 const { Client, GatewayIntentBits, EmbedBuilder, ActivityType, ActionRowBuilder, ButtonBuilder, ButtonStyle, PermissionFlagsBits } = require('discord.js');
 const axios = require('axios');
 const util = require('util');
-const fs = require('fs');
 const path = require('path');
 const sqlite3 = require('sqlite3').verbose(); // Using pure JS sqlite3
 
@@ -14,11 +13,9 @@ const client = new Client({
     ]
 });
 
-// Load configuration with defensive trimming
+// Load configuration
 const CONFIG = {
     TOKEN: (process.env.YOUR_DISCORD_BOT_TOKEN || process.env.DISCORD_TOKEN || process.env.BOT_TOKEN || '').trim(),
-    TARGET_BOT_ID: (process.env.TARGET_BOT_USER_ID || process.env.TARGET_BOT_ID || '').trim(),
-    SYNC_OFFSET_MS: parseInt(process.env.SYNC_OFFSET_MS) || 0, // Fallback to 0 if not provided by the panel
     USER_AGENT: 'DiscordLyricsLiveVisualizer/2.0 (contact@yourdomain.com)'
 };
 
@@ -28,36 +25,32 @@ const db = new sqlite3.Database(dbPath, (err) => {
     if (err) console.error('[DB ERROR] Failed to connect:', err.message);
 });
 
-// Create table asynchronously if it doesn't exist
+// Create table asynchronously if it doesn't exist, and add new columns if needed
 db.serialize(() => {
     db.run(`
         CREATE TABLE IF NOT EXISTS server_configs (
             guild_id TEXT PRIMARY KEY,
             listen_channel_id TEXT NOT NULL,
-            output_channel_id TEXT NOT NULL
+            output_channel_id TEXT NOT NULL,
+            target_bot_id TEXT,
+            sync_offset_ms INTEGER DEFAULT 0
         )
     `, (err) => {
         if (err) console.error('[DB ERROR] Failed to create table:', err.message);
     });
+
+    // Migrations for Wispbyte optimizations
+    db.run('ALTER TABLE server_configs ADD COLUMN target_bot_id TEXT', (err) => {});
+    db.run('ALTER TABLE server_configs ADD COLUMN sync_offset_ms INTEGER DEFAULT 0', (err) => {});
 });
 
 // Map to hold active song sessions per guild
 const activeSessions = new Map();
 
-// Helper to persist updated configuration to .env file (only for SYNC_OFFSET_MS)
-// Local file saving deprecated - timing offset configurations persist in-memory on the host
-function saveConfigToEnv() {
-    console.log(`[CONFIG] Runtime timing offset updated in-memory - SYNC_OFFSET_MS: ${CONFIG.SYNC_OFFSET_MS}`);
-    return true;
-}
-
-
 client.once('ready', () => {
     console.log(`[BOOT] Logged in as ${client.user.tag}`);
     client.user.setActivity('Meow Miau Meow', { type: ActivityType.Listening });
-    console.log(`[BOOT] Configuration loaded. Tracking Bot ID: ${CONFIG.TARGET_BOT_ID}`);
-    console.log(`[BOOT] Multi-server SQLite database initialized.`);
-    console.log(`[BOOT] Loaded Sync Offset: ${CONFIG.SYNC_OFFSET_MS}ms`);
+    console.log(`[BOOT] Multi-server SQLite database initialized for Wispbyte.`);
     
     // Log the intents requested by the client to verify
     const requestedIntents = client.options.intents.toArray();
@@ -66,7 +59,6 @@ client.once('ready', () => {
 
 // Event hook for new messages
 client.on('messageCreate', async (message) => {
-    console.log(`[RAW messageCreate] Event fired. Msg ID: ${message.id} | Author: ${message.author?.tag} (${message.author?.id}) | Channel: ${message.channelId} | Content Length: ${message.content?.length || 0} | Embeds: ${message.embeds?.length || 0} | Type: ${message.type} | IsInteraction: ${!!message.interaction}`);
     
     // Command Handler for Admin Configuration Commands
     if (message.content && message.content.startsWith('!')) {
@@ -75,7 +67,7 @@ client.on('messageCreate', async (message) => {
         const arg = parts.slice(1).join(' ');
         const guildId = message.guildId;
 
-        const targetCommands = ['!setup-lyrics', '!setlisten', '!setoutput', '!setoffset', '!status', '!lyrikastatus'];
+        const targetCommands = ['!setup-lyrics', '!setlisten', '!setoutput', '!setoffset', '!set-targetbot', '!status', '!lyrikastatus'];
         if (targetCommands.includes(command) && guildId) {
             // Check permissions: restrict to users with ManageChannels or Administrator permissions
             const member = message.member;
@@ -107,7 +99,7 @@ client.on('messageCreate', async (message) => {
                 }
 
                 db.run(
-                    'INSERT OR REPLACE INTO server_configs (guild_id, listen_channel_id, output_channel_id) VALUES (?, ?, ?)',
+                    'INSERT INTO server_configs (guild_id, listen_channel_id, output_channel_id, target_bot_id, sync_offset_ms) VALUES (?, ?, ?, NULL, 0) ON CONFLICT(guild_id) DO UPDATE SET listen_channel_id=excluded.listen_channel_id, output_channel_id=excluded.output_channel_id',
                     [guildId, listenId, outputId],
                     async function(err) {
                         if (err) return console.error(err.message);
@@ -129,24 +121,20 @@ client.on('messageCreate', async (message) => {
                     }
                 }
                 
-                // Verify the channel exists and is readable
                 const targetChannel = message.guild.channels.cache.get(targetChannelId) || await message.guild.channels.fetch(targetChannelId).catch(() => null);
                 if (!targetChannel) {
                     await message.reply('❌ Channel not found in this server.').catch(console.error);
                     return;
                 }
 
-                db.get('SELECT output_channel_id FROM server_configs WHERE guild_id = ?', [guildId], (err, row) => {
-                    const currentOutputId = row ? row.output_channel_id : targetChannelId;
-                    db.run(
-                        'INSERT OR REPLACE INTO server_configs (guild_id, listen_channel_id, output_channel_id) VALUES (?, ?, ?)',
-                        [guildId, targetChannelId, currentOutputId],
-                        async (err) => {
-                            if (err) return console.error(err.message);
-                            await message.reply(`✅ **Listen Channel** updated to <#${targetChannelId}> (ID: \`${targetChannelId}\`).`).catch(console.error);
-                        }
-                    );
-                });
+                db.run(
+                    'INSERT INTO server_configs (guild_id, listen_channel_id, output_channel_id, target_bot_id, sync_offset_ms) VALUES (?, ?, "UNSET", NULL, 0) ON CONFLICT(guild_id) DO UPDATE SET listen_channel_id=excluded.listen_channel_id',
+                    [guildId, targetChannelId],
+                    async (err) => {
+                        if (err) return console.error(err.message);
+                        await message.reply(`✅ **Listen Channel** updated to <#${targetChannelId}> (ID: \`${targetChannelId}\`).`).catch(console.error);
+                    }
+                );
                 return;
             }
 
@@ -162,47 +150,81 @@ client.on('messageCreate', async (message) => {
                     }
                 }
                 
-                // Verify the channel exists and is readable
                 const targetChannel = message.guild.channels.cache.get(targetChannelId) || await message.guild.channels.fetch(targetChannelId).catch(() => null);
                 if (!targetChannel) {
                     await message.reply('❌ Channel not found in this server.').catch(console.error);
                     return;
                 }
 
-                db.get('SELECT listen_channel_id FROM server_configs WHERE guild_id = ?', [guildId], (err, row) => {
-                    const currentListenId = row ? row.listen_channel_id : targetChannelId;
+                db.run(
+                    'INSERT INTO server_configs (guild_id, listen_channel_id, output_channel_id, target_bot_id, sync_offset_ms) VALUES (?, "UNSET", ?, NULL, 0) ON CONFLICT(guild_id) DO UPDATE SET output_channel_id=excluded.output_channel_id',
+                    [guildId, targetChannelId],
+                    async (err) => {
+                        if (err) return console.error(err.message);
+                        await message.reply(`✅ **Output Channel** updated to <#${targetChannelId}> (ID: \`${targetChannelId}\`).`).catch(console.error);
+                    }
+                );
+                return;
+            }
+
+            if (command === '!set-targetbot') {
+                if (!arg) {
+                    await message.reply('❌ Usage: `!set-targetbot <bot_id_or_mention>`').catch(console.error);
+                    return;
+                }
+                const match = arg.match(/^(?:<@!?)?(\d+)>?$/);
+                if (!match) {
+                    await message.reply('❌ Invalid ID format. Please specify a valid user ID or mention.').catch(console.error);
+                    return;
+                }
+                const targetBotId = match[1];
+                
+                db.run(
+                    'INSERT INTO server_configs (guild_id, listen_channel_id, output_channel_id, target_bot_id, sync_offset_ms) VALUES (?, "UNSET", "UNSET", ?, 0) ON CONFLICT(guild_id) DO UPDATE SET target_bot_id=excluded.target_bot_id',
+                    [guildId, targetBotId],
+                    async (err) => {
+                        if (err) return console.error(err.message);
+                        await message.reply(`✅ **Target Bot ID** updated to \`${targetBotId}\`.`).catch(console.error);
+                    }
+                );
+                return;
+            }
+
+            if (command === '!setoffset') {
+                db.get('SELECT sync_offset_ms FROM server_configs WHERE guild_id = ?', [guildId], (err, config) => {
+                    const currentOffset = config ? config.sync_offset_ms : 0;
+                    
+                    if (!arg) {
+                        message.reply(`ℹ️ Current Sync Offset for this server is **${currentOffset}ms**. Use \`!setoffset <ms>\` to change it.`).catch(console.error);
+                        return;
+                    }
+                    const newOffset = parseInt(arg, 10);
+                    if (isNaN(newOffset)) {
+                        message.reply('❌ Invalid offset value. Please specify a valid integer in milliseconds.').catch(console.error);
+                        return;
+                    }
+                    
                     db.run(
-                        'INSERT OR REPLACE INTO server_configs (guild_id, listen_channel_id, output_channel_id) VALUES (?, ?, ?)',
-                        [guildId, currentListenId, targetChannelId],
+                        'INSERT INTO server_configs (guild_id, listen_channel_id, output_channel_id, target_bot_id, sync_offset_ms) VALUES (?, "UNSET", "UNSET", NULL, ?) ON CONFLICT(guild_id) DO UPDATE SET sync_offset_ms=excluded.sync_offset_ms',
+                        [guildId, newOffset],
                         async (err) => {
                             if (err) return console.error(err.message);
-                            await message.reply(`✅ **Output Channel** updated to <#${targetChannelId}> (ID: \`${targetChannelId}\`).`).catch(console.error);
+                            if (activeSessions.has(guildId)) {
+                                activeSessions.get(guildId).syncOffsetMs = newOffset;
+                            }
+                            await message.reply(`✅ **Sync Offset** updated to **${newOffset}ms**.`).catch(console.error);
                         }
                     );
                 });
                 return;
             }
 
-            if (command === '!setoffset') {
-                if (!arg) {
-                    await message.reply(`ℹ️ Current Sync Offset is **${CONFIG.SYNC_OFFSET_MS}ms**. Use \`!setoffset <ms>\` to change it.`).catch(console.error);
-                    return;
-                }
-                const newOffset = parseInt(arg, 10);
-                if (isNaN(newOffset)) {
-                    await message.reply('❌ Invalid offset value. Please specify a valid integer in milliseconds.').catch(console.error);
-                    return;
-                }
-                CONFIG.SYNC_OFFSET_MS = newOffset;
-                saveConfigToEnv();
-                await message.reply(`✅ **Sync Offset** updated to **${CONFIG.SYNC_OFFSET_MS}ms**.`).catch(console.error);
-                return;
-            }
-
             if (command === '!status' || command === '!lyrikastatus') {
-                db.get('SELECT listen_channel_id, output_channel_id FROM server_configs WHERE guild_id = ?', [guildId], async (err, config) => {
-                    const listenVal = config ? `<#${config.listen_channel_id}> (ID: \`${config.listen_channel_id}\`)` : '❌ *Not Configured* (Use `!setup-lyrics`)';
-                    const outputVal = config ? `<#${config.output_channel_id}> (ID: \`${config.output_channel_id}\`)` : '❌ *Not Configured* (Use `!setup-lyrics`)';
+                db.get('SELECT * FROM server_configs WHERE guild_id = ?', [guildId], async (err, config) => {
+                    const listenVal = (config && config.listen_channel_id !== 'UNSET') ? `<#${config.listen_channel_id}> (ID: \`${config.listen_channel_id}\`)` : '❌ *Not Configured* (Use `!setup-lyrics`)';
+                    const outputVal = (config && config.output_channel_id !== 'UNSET') ? `<#${config.output_channel_id}> (ID: \`${config.output_channel_id}\`)` : '❌ *Not Configured* (Use `!setup-lyrics`)';
+                    const targetBotVal = (config && config.target_bot_id) ? `\`${config.target_bot_id}\`` : '❌ *Not Configured* (Use `!set-targetbot`)';
+                    const offsetVal = config ? `\`${config.sync_offset_ms}ms\`` : '`0ms`';
 
                     const statusEmbed = new EmbedBuilder()
                         .setColor(0x3498db)
@@ -211,8 +233,8 @@ client.on('messageCreate', async (message) => {
                         .addFields(
                             { name: '📥 Listen Channel', value: listenVal, inline: true },
                             { name: '📤 Output Channel', value: outputVal, inline: true },
-                            { name: '🎵 Target Bot ID', value: `\`${CONFIG.TARGET_BOT_ID}\``, inline: true },
-                            { name: '⏱ Sync Offset', value: `\`${CONFIG.SYNC_OFFSET_MS}ms\``, inline: true }
+                            { name: '🎵 Target Bot ID', value: targetBotVal, inline: true },
+                            { name: '⏱ Sync Offset', value: offsetVal, inline: true }
                         )
                         .setTimestamp();
                     await message.reply({ embeds: [statusEmbed] }).catch(console.error);
@@ -222,24 +244,11 @@ client.on('messageCreate', async (message) => {
         }
     }
 
-    if (message.author?.id === process.env.TARGET_BOT_USER_ID) {
-        console.log(`[DUMP] Raw Message Data:`);
-        console.log(util.inspect(message, { depth: 1, colors: false }));
-    }
-
-    if (message.embeds?.length > 0) {
-        console.log(`[DEBUG messageCreate] Embed 0 - Title: "${message.embeds[0].title || ''}" | Description: "${message.embeds[0].description || ''}"`);
-    }
     await handleIncomingMessage(message, "CREATE");
 });
 
-
 // Event hook for updated messages
 client.on('messageUpdate', async (oldMessage, newMessage) => {
-    console.log(`[RAW messageUpdate] Event fired. Msg ID: ${newMessage.id} | Author: ${newMessage.author?.tag} (${newMessage.author?.id}) | Channel: ${newMessage.channelId} | Content Length: ${newMessage.content?.length || 0} | Embeds: ${newMessage.embeds?.length || 0} | Type: ${newMessage.type} | IsInteraction: ${!!newMessage.interaction}`);
-    if (newMessage.embeds?.length > 0) {
-        console.log(`[DEBUG messageUpdate] Embed 0 - Title: "${newMessage.embeds[0].title || ''}" | Description: "${newMessage.embeds[0].description || ''}"`);
-    }
     await handleIncomingMessage(newMessage, "UPDATE");
 });
 
@@ -247,14 +256,32 @@ client.on('messageUpdate', async (oldMessage, newMessage) => {
 client.on('interactionCreate', async interaction => {
     if (!interaction.isButton()) return;
     
-    if (interaction.customId === 'sync_back') {
-        CONFIG.SYNC_OFFSET_MS -= 500;
-        saveConfigToEnv();
-        await interaction.reply({ content: `⏪ Lyrics slowed down. Current Offset: **${CONFIG.SYNC_OFFSET_MS}ms**`, ephemeral: true });
-    } else if (interaction.customId === 'sync_forward') {
-        CONFIG.SYNC_OFFSET_MS += 500;
-        saveConfigToEnv();
-        await interaction.reply({ content: `⏩ Lyrics jumped forward. Current Offset: **${CONFIG.SYNC_OFFSET_MS}ms**`, ephemeral: true });
+    const guildId = interaction.guildId;
+    if (!guildId) return;
+
+    if (interaction.customId === 'sync_back' || interaction.customId === 'sync_forward') {
+        db.get('SELECT sync_offset_ms FROM server_configs WHERE guild_id = ?', [guildId], (err, config) => {
+            let currentOffset = config ? config.sync_offset_ms : 0;
+
+            if (interaction.customId === 'sync_back') {
+                currentOffset -= 500;
+            } else {
+                currentOffset += 500;
+            }
+
+            db.run(
+                'INSERT INTO server_configs (guild_id, listen_channel_id, output_channel_id, target_bot_id, sync_offset_ms) VALUES (?, "UNSET", "UNSET", NULL, ?) ON CONFLICT(guild_id) DO UPDATE SET sync_offset_ms=excluded.sync_offset_ms',
+                [guildId, currentOffset],
+                async (err) => {
+                    if (err) return console.error(err.message);
+                    if (activeSessions.has(guildId)) {
+                        activeSessions.get(guildId).syncOffsetMs = currentOffset;
+                    }
+                    const actionText = interaction.customId === 'sync_back' ? '⏪ Lyrics slowed down.' : '⏩ Lyrics jumped forward.';
+                    await interaction.reply({ content: `${actionText} Current Offset: **${currentOffset}ms**`, ephemeral: true });
+                }
+            );
+        });
     }
 });
 
@@ -288,7 +315,6 @@ function extractTextFromComponents(components) {
 function extractSongInfo(message) {
     let fullText = message.content || "";
     
-    // Add embed text
     if (message.embeds?.length > 0) {
         message.embeds.forEach(embed => {
             if (embed.title) fullText += "\n" + embed.title;
@@ -296,18 +322,13 @@ function extractSongInfo(message) {
         });
     }
 
-    // Add V2 Component text
     if (message.components?.length > 0) {
         fullText += "\n" + extractTextFromComponents(message.components);
     }
     
-    console.log(`[PARSE] Raw Combined Text to Parse: \n${fullText}`);
     return fullText;
 }
 
-/**
- * Extracts payload text from message content, embeds, or V2 Components
- */
 function getMessageText(message) {
     return extractSongInfo(message);
 }
@@ -315,7 +336,7 @@ function getMessageText(message) {
 // Helper to bridge sqlite callback into async/await logic
 function getGuildConfig(guildId) {
     return new Promise((resolve, reject) => {
-        db.get('SELECT listen_channel_id, output_channel_id FROM server_configs WHERE guild_id = ?', [guildId], (err, row) => {
+        db.get('SELECT * FROM server_configs WHERE guild_id = ?', [guildId], (err, row) => {
             if (err) reject(err);
             else resolve(row);
         });
@@ -326,39 +347,26 @@ function getGuildConfig(guildId) {
  * Gatekeeper and Orchestrator for incoming messages
  */
 async function handleIncomingMessage(message, eventType) {
-    console.log(`[GATEKEEPER - ${eventType}] Checking message ${message.id}...`);
-    
     const guildId = message.guildId;
     if (!guildId) return;
 
     // Fetch config for this guild using the promise helper
     const config = await getGuildConfig(guildId).catch(() => null);
-    if (!config) return;
+    if (!config || !config.target_bot_id || config.listen_channel_id === 'UNSET' || config.output_channel_id === 'UNSET') return;
 
     // Check 1: Channel ID Check
-    const channelMatch = message.channelId === config.listen_channel_id;
-    console.log(`[GATEKEEPER - ${eventType}] Channel check: Msg Channel=${message.channelId} vs Config Listen=${config.listen_channel_id} | Match=${channelMatch}`);
-    if (!channelMatch) return;
+    if (message.channelId !== config.listen_channel_id) return;
 
     // Check 2: Author ID Check
-    const authorMatch = message.author?.id === CONFIG.TARGET_BOT_ID;
-    console.log(`[GATEKEEPER - ${eventType}] Author check: Msg Author=${message.author?.id} vs Config Target=${CONFIG.TARGET_BOT_ID} | Match=${authorMatch}`);
-    if (!authorMatch) return;
+    if (message.author?.id !== config.target_bot_id) return;
 
     // Check 3: Content Check
     const messageText = getMessageText(message);
-    const textExists = messageText && messageText.trim() !== '';
-    console.log(`[GATEKEEPER - ${eventType}] Content check: Text Exists=${!!textExists} | Text length=${messageText?.length || 0}`);
-    if (!textExists) return;
-
-    if (!messageText.toLowerCase().includes('now playing')) {
-        console.log(`[GATEKEEPER - ${eventType}] Ignored message because it is not a "Now Playing" message.`);
-        return;
-    }
+    if (!messageText || messageText.trim() === '') return;
+    if (!messageText.toLowerCase().includes('now playing')) return;
 
     console.log(`\n======================================================`);
     console.log(`[EVENT] Target Bot Message Received in Listen Channel`);
-    console.log(`[DEBUG] Raw Payload Text: ${messageText.replace(/\n/g, '\\n')}`);
 
     // Clean and parse the message content
     const searchString = extractSearchString(messageText);
@@ -386,11 +394,13 @@ async function handleIncomingMessage(message, eventType) {
                         new ButtonBuilder()
                             .setCustomId('sync_back')
                             .setLabel('⏪ -0.5s')
-                            .setStyle(ButtonStyle.Primary),
+                            .setStyle(ButtonStyle.Primary)
+                            .setDisabled(true),
                         new ButtonBuilder()
                             .setCustomId('sync_forward')
                             .setLabel('⏩ +0.5s')
                             .setStyle(ButtonStyle.Primary)
+                            .setDisabled(true)
                     );
                 const finalEmbed = EmbedBuilder.from(currentSession.displayMessage.embeds[0])
                     .setDescription('🎵 *Track playback finished or skipped.*');
@@ -446,7 +456,8 @@ async function handleIncomingMessage(message, eventType) {
         displayMessage,
         startTime: message.createdTimestamp,
         lastLineIndex: -1,
-        intervalId: null
+        intervalId: null,
+        syncOffsetMs: config.sync_offset_ms || 0
     };
 
     activeSessions.set(guildId, session);
@@ -456,17 +467,12 @@ async function handleIncomingMessage(message, eventType) {
     console.log(`[ENGINE] Sync loop started.`);
 }
 
-/**
- * Aggressive cleaning function for dirty markdown bot payloads
- */
 function extractSearchString(content) {
-    console.log(`[PARSER] Starting parse on raw content.`);
     const lines = content.split('\n');
     let targetLine = '';
 
     for (let line of lines) {
         line = line.trim();
-        // The song line typically contains "by" or "-" and doesn't contain metadata keywords
         if (
             (line.toLowerCase().includes(' by ') || line.includes(' - ')) && 
             !line.toLowerCase().includes('now playing') && 
@@ -477,12 +483,8 @@ function extractSearchString(content) {
         }
     }
 
-    // Fallback to the whole content if we couldn't isolate a line
     if (!targetLine) {
-        console.log(`[PARSER] Could not isolate song line. Using full content fallback.`);
         targetLine = content;
-    } else {
-        console.log(`[PARSER] Isolated song line: "${targetLine}"`);
     }
 
     let cleaned = targetLine;
@@ -506,10 +508,7 @@ function extractSearchString(content) {
     // 6. Clean up excessive whitespace and trim
     cleaned = cleaned.replace(/\s+/g, ' ').trim();
 
-    // Remove any trailing or leading hyphens/dashes that might remain
     cleaned = cleaned.replace(/^[-–—\s]+|[-–—\s]+$/g, '').trim();
-
-    console.log(`[PARSER] Intermediary Cleaned Text: "${cleaned}"`);
 
     // 7. Attempt to isolate Track and Artist
     let track = '';
@@ -527,18 +526,13 @@ function extractSearchString(content) {
         return cleaned;
     }
 
-    // Clean up track/artist from remaining brackets (like timestamps if any left)
     track = track.replace(/^[-–—\s]+|[-–—\s]+$/g, '').trim();
     artist = artist.replace(/^[-–—\s]+|[-–—\s]+$/g, '').trim();
 
     return `${track} ${artist}`;
 }
 
-/**
- * Uses LRCLIB search endpoint and finds the first synced result
- */
 async function fetchLyricsFromLRCLIB(searchQuery) {
-    console.log(`[API] Searching LRCLIB for: "${searchQuery}"`);
     try {
         const response = await axios.get('https://lrclib.net/api/search', {
             params: { q: searchQuery },
@@ -547,19 +541,15 @@ async function fetchLyricsFromLRCLIB(searchQuery) {
 
         const results = response.data;
         if (!Array.isArray(results) || results.length === 0) {
-            console.log(`[API] LRCLIB returned 0 results.`);
             return null;
         }
 
-        // Find the first result that contains synced lyrics
         const match = results.find(track => track.syncedLyrics && track.syncedLyrics.trim() !== '');
         
         if (!match) {
-            console.log(`[API] Results found, but none contained synced lyrics.`);
             return null;
         }
 
-        console.log(`[API] LRCLIB Match Found! Track ID: ${match.id} | ${match.trackName} by ${match.artistName}`);
         return parseLRC(match.syncedLyrics);
 
     } catch (error) {
@@ -568,9 +558,6 @@ async function fetchLyricsFromLRCLIB(searchQuery) {
     }
 }
 
-/**
- * Converts standard LRC formatting into a timing array
- */
 function parseLRC(lrcText) {
     const lines = lrcText.split('\n');
     const lyricsTimeline = [];
@@ -583,7 +570,6 @@ function parseLRC(lrcText) {
             const seconds = parseInt(match[2], 10);
             const milliseconds = parseInt(match[3], 10);
             
-            // Normalize MS (LRCLIB uses 2 digits for 10s of MS, but standard allows 3)
             const msFactor = match[3].length === 2 ? 10 : 1;
             const absoluteSeconds = (minutes * 60) + seconds + ((milliseconds * msFactor) / 1000);
             
@@ -593,22 +579,16 @@ function parseLRC(lrcText) {
             }
         }
     }
-    // Ensure chronological order
     return lyricsTimeline.sort((a, b) => a.time - b.time);
 }
 
-/**
- * 400ms tick engine for visual frame calculation
- */
 async function runSyncLoop(guildId) {
     const session = activeSessions.get(guildId);
     if (!session) return;
 
-    // Apply offset (e.g. +2000ms will make the lyrics jump 2 seconds forward)
-    const elapsedTime = ((Date.now() - session.startTime) + CONFIG.SYNC_OFFSET_MS) / 1000;
+    const elapsedTime = ((Date.now() - session.startTime) + session.syncOffsetMs) / 1000;
     
     let currentLineIndex = -1;
-    // Iterate to find the highest line whose timestamp has passed
     for (let i = 0; i < session.lyrics.length; i++) {
         if (elapsedTime >= session.lyrics[i].time) {
             currentLineIndex = i;
@@ -617,7 +597,6 @@ async function runSyncLoop(guildId) {
         }
     }
 
-    // Check if the song has ended
     const lastLyric = session.lyrics[session.lyrics.length - 1];
     if (currentLineIndex >= session.lyrics.length - 1 && elapsedTime > lastLyric.time + 5) {
         console.log(`[ENGINE] Track timeline complete.`);
@@ -632,7 +611,6 @@ async function runSyncLoop(guildId) {
         return;
     }
 
-    // Rate Limit Protection: Only hit Discord API if the active line moved
     if (currentLineIndex !== session.lastLineIndex && currentLineIndex !== -1) {
         session.lastLineIndex = currentLineIndex;
         
@@ -642,9 +620,9 @@ async function runSyncLoop(guildId) {
 
         for (let j = startWindow; j <= endWindow; j++) {
             if (j === currentLineIndex) {
-                dynamicDisplayBuffer += `👉 **${session.lyrics[j].text}**\n`; // Current line
+                dynamicDisplayBuffer += `👉 **${session.lyrics[j].text}**\n`;
             } else {
-                dynamicDisplayBuffer += `🔹 *${session.lyrics[j].text}*\n`;   // Surrounding lines
+                dynamicDisplayBuffer += `🔹 *${session.lyrics[j].text}*\n`;
             }
         }
 
