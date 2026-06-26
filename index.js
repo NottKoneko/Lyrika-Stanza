@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, EmbedBuilder, ActivityType, ActionRowBuilder, ButtonBuilder, ButtonStyle, PermissionFlagsBits } = require('discord.js');
+const { Client, GatewayIntentBits, EmbedBuilder, ActivityType, ActionRowBuilder, ButtonBuilder, ButtonStyle, PermissionFlagsBits, ApplicationCommandOptionType } = require('discord.js');
 const axios = require('axios');
 const util = require('util');
 const path = require('path');
@@ -67,7 +67,7 @@ db.serialize(() => {
 // Map to hold active song sessions per guild
 const activeSessions = new Map();
 
-client.once('ready', () => {
+client.once('ready', async () => {
     console.log(`[BOOT] Logged in as ${client.user.tag}`);
     client.user.setActivity('Meow Miau Meow', { type: ActivityType.Listening });
     console.log(`[BOOT] Multi-server SQLite database initialized for Wispbyte.`);
@@ -75,195 +75,71 @@ client.once('ready', () => {
     // Log the intents requested by the client to verify
     const requestedIntents = client.options.intents.toArray();
     console.log(`[BOOT] Requested Intents in Code: [${requestedIntents.join(', ')}]`);
+
+    // Register slash commands globally
+    const commands = [
+        {
+            name: 'setup-lyrics',
+            description: 'Setup the channels for the lyrics bot',
+            options: [
+                {
+                    name: 'listen-channel',
+                    description: 'The channel to listen for music bot messages',
+                    type: ApplicationCommandOptionType.Channel,
+                    required: true
+                },
+                {
+                    name: 'output-channel',
+                    description: 'The channel to post the live lyrics visualizer',
+                    type: ApplicationCommandOptionType.Channel,
+                    required: true
+                }
+            ],
+            defaultMemberPermissions: PermissionFlagsBits.ManageChannels
+        },
+        {
+            name: 'set-targetbot',
+            description: 'Set the music bot user to listen to',
+            options: [
+                {
+                    name: 'bot',
+                    description: 'The music bot user',
+                    type: ApplicationCommandOptionType.User,
+                    required: true
+                }
+            ],
+            defaultMemberPermissions: PermissionFlagsBits.ManageChannels
+        },
+        {
+            name: 'setoffset',
+            description: 'Set synchronization speed offset in milliseconds',
+            options: [
+                {
+                    name: 'offset-ms',
+                    description: 'Offset in milliseconds (positive = speed up, negative = slow down)',
+                    type: ApplicationCommandOptionType.Integer,
+                    required: true
+                }
+            ],
+            defaultMemberPermissions: PermissionFlagsBits.ManageChannels
+        },
+        {
+            name: 'status',
+            description: 'Check the current configuration for this server',
+            defaultMemberPermissions: PermissionFlagsBits.ManageChannels
+        }
+    ];
+
+    try {
+        await client.application.commands.set(commands);
+        console.log('[BOOT] Successfully registered global slash commands.');
+    } catch (error) {
+        console.error('[BOOT] Error registering slash commands:', error);
+    }
 });
 
-// Event hook for new messages
+// Event hook for new messages (strictly for live lyric detection now)
 client.on('messageCreate', async (message) => {
-    
-    // Command Handler for Admin Configuration Commands
-    if (message.content && message.content.startsWith('!')) {
-        const parts = message.content.trim().split(/\s+/);
-        const command = parts[0].toLowerCase();
-        const arg = parts.slice(1).join(' ');
-        const guildId = message.guildId;
-
-        const targetCommands = ['!setup-lyrics', '!setlisten', '!setoutput', '!setoffset', '!set-targetbot', '!status', '!lyrikastatus'];
-        if (targetCommands.includes(command) && guildId) {
-            // Check permissions: restrict to users with ManageChannels or Administrator permissions
-            const member = message.member;
-            if (!member || (!member.permissions.has(PermissionFlagsBits.ManageChannels) && !member.permissions.has(PermissionFlagsBits.Administrator))) {
-                await message.reply('❌ You do not have permission (`Manage Channels` or `Administrator`) to run this command.').catch(console.error);
-                return;
-            }
-
-            if (command === '!setup-lyrics') {
-                const args = parts.slice(1);
-                if (args.length < 2) {
-                    await message.reply('❌ Usage: `!setup-lyrics <listen_channel_id_or_mention> <output_channel_id_or_mention>`').catch(console.error);
-                    return;
-                }
-                const listenMatch = args[0].match(/^(?:<#)?(\d+)>?$/);
-                const outputMatch = args[1].match(/^(?:<#)?(\d+)>?$/);
-                if (!listenMatch || !outputMatch) {
-                    await message.reply('❌ Invalid channel format. Please specify valid channel IDs or mentions.').catch(console.error);
-                    return;
-                }
-                const listenId = listenMatch[1];
-                const outputId = outputMatch[1];
-
-                const listenChannel = message.guild.channels.cache.get(listenId) || await message.guild.channels.fetch(listenId).catch(() => null);
-                const outputChannel = message.guild.channels.cache.get(outputId) || await message.guild.channels.fetch(outputId).catch(() => null);
-                if (!listenChannel || !outputChannel) {
-                    await message.reply('❌ One or both channels were not found in this server.').catch(console.error);
-                    return;
-                }
-
-                db.run(
-                    'INSERT INTO server_configs (guild_id, listen_channel_id, output_channel_id, target_bot_id, sync_offset_ms) VALUES (?, ?, ?, NULL, 0) ON CONFLICT(guild_id) DO UPDATE SET listen_channel_id=excluded.listen_channel_id, output_channel_id=excluded.output_channel_id',
-                    [guildId, listenId, outputId],
-                    async function(err) {
-                        if (err) return console.error(err.message);
-                        await message.reply(`✅ **Lyrics Configuration Setup Complete!**\n📥 **Listen Channel:** <#${listenId}> (ID: \`${listenId}\`)\n📤 **Output Channel:** <#${outputId}> (ID: \`${outputId}\`)`).catch(console.error);
-                    }
-                );
-                return;
-            }
-
-            if (command === '!setlisten') {
-                let targetChannelId = message.channelId;
-                if (arg) {
-                    const match = arg.match(/^(?:<#)?(\d+)>?$/);
-                    if (match) {
-                        targetChannelId = match[1];
-                    } else {
-                        await message.reply('❌ Invalid channel format. Please specify a valid channel ID or mention (e.g. #channel).').catch(console.error);
-                        return;
-                    }
-                }
-                
-                const targetChannel = message.guild.channels.cache.get(targetChannelId) || await message.guild.channels.fetch(targetChannelId).catch(() => null);
-                if (!targetChannel) {
-                    await message.reply('❌ Channel not found in this server.').catch(console.error);
-                    return;
-                }
-
-                db.run(
-                    'INSERT INTO server_configs (guild_id, listen_channel_id, output_channel_id, target_bot_id, sync_offset_ms) VALUES (?, ?, "UNSET", NULL, 0) ON CONFLICT(guild_id) DO UPDATE SET listen_channel_id=excluded.listen_channel_id',
-                    [guildId, targetChannelId],
-                    async (err) => {
-                        if (err) return console.error(err.message);
-                        await message.reply(`✅ **Listen Channel** updated to <#${targetChannelId}> (ID: \`${targetChannelId}\`).`).catch(console.error);
-                    }
-                );
-                return;
-            }
-
-            if (command === '!setoutput') {
-                let targetChannelId = message.channelId;
-                if (arg) {
-                    const match = arg.match(/^(?:<#)?(\d+)>?$/);
-                    if (match) {
-                        targetChannelId = match[1];
-                    } else {
-                        await message.reply('❌ Invalid channel format. Please specify a valid channel ID or mention (e.g. #channel).').catch(console.error);
-                        return;
-                    }
-                }
-                
-                const targetChannel = message.guild.channels.cache.get(targetChannelId) || await message.guild.channels.fetch(targetChannelId).catch(() => null);
-                if (!targetChannel) {
-                    await message.reply('❌ Channel not found in this server.').catch(console.error);
-                    return;
-                }
-
-                db.run(
-                    'INSERT INTO server_configs (guild_id, listen_channel_id, output_channel_id, target_bot_id, sync_offset_ms) VALUES (?, "UNSET", ?, NULL, 0) ON CONFLICT(guild_id) DO UPDATE SET output_channel_id=excluded.output_channel_id',
-                    [guildId, targetChannelId],
-                    async (err) => {
-                        if (err) return console.error(err.message);
-                        await message.reply(`✅ **Output Channel** updated to <#${targetChannelId}> (ID: \`${targetChannelId}\`).`).catch(console.error);
-                    }
-                );
-                return;
-            }
-
-            if (command === '!set-targetbot') {
-                if (!arg) {
-                    await message.reply('❌ Usage: `!set-targetbot <bot_id_or_mention>`').catch(console.error);
-                    return;
-                }
-                const match = arg.match(/^(?:<@!?)?(\d+)>?$/);
-                if (!match) {
-                    await message.reply('❌ Invalid ID format. Please specify a valid user ID or mention.').catch(console.error);
-                    return;
-                }
-                const targetBotId = match[1];
-                
-                db.run(
-                    'INSERT INTO server_configs (guild_id, listen_channel_id, output_channel_id, target_bot_id, sync_offset_ms) VALUES (?, "UNSET", "UNSET", ?, 0) ON CONFLICT(guild_id) DO UPDATE SET target_bot_id=excluded.target_bot_id',
-                    [guildId, targetBotId],
-                    async (err) => {
-                        if (err) return console.error(err.message);
-                        await message.reply(`✅ **Target Bot ID** updated to \`${targetBotId}\`.`).catch(console.error);
-                    }
-                );
-                return;
-            }
-
-            if (command === '!setoffset') {
-                db.get('SELECT sync_offset_ms FROM server_configs WHERE guild_id = ?', [guildId], (err, config) => {
-                    const currentOffset = config ? config.sync_offset_ms : 0;
-                    
-                    if (!arg) {
-                        message.reply(`ℹ️ Current Sync Offset for this server is **${currentOffset}ms**. Use \`!setoffset <ms>\` to change it.`).catch(console.error);
-                        return;
-                    }
-                    const newOffset = parseInt(arg, 10);
-                    if (isNaN(newOffset)) {
-                        message.reply('❌ Invalid offset value. Please specify a valid integer in milliseconds.').catch(console.error);
-                        return;
-                    }
-                    
-                    db.run(
-                        'INSERT INTO server_configs (guild_id, listen_channel_id, output_channel_id, target_bot_id, sync_offset_ms) VALUES (?, "UNSET", "UNSET", NULL, ?) ON CONFLICT(guild_id) DO UPDATE SET sync_offset_ms=excluded.sync_offset_ms',
-                        [guildId, newOffset],
-                        async (err) => {
-                            if (err) return console.error(err.message);
-                            if (activeSessions.has(guildId)) {
-                                activeSessions.get(guildId).syncOffsetMs = newOffset;
-                            }
-                            await message.reply(`✅ **Sync Offset** updated to **${newOffset}ms**.`).catch(console.error);
-                        }
-                    );
-                });
-                return;
-            }
-
-            if (command === '!status' || command === '!lyrikastatus') {
-                db.get('SELECT * FROM server_configs WHERE guild_id = ?', [guildId], async (err, config) => {
-                    const listenVal = (config && config.listen_channel_id !== 'UNSET') ? `<#${config.listen_channel_id}> (ID: \`${config.listen_channel_id}\`)` : '❌ *Not Configured* (Use `!setup-lyrics`)';
-                    const outputVal = (config && config.output_channel_id !== 'UNSET') ? `<#${config.output_channel_id}> (ID: \`${config.output_channel_id}\`)` : '❌ *Not Configured* (Use `!setup-lyrics`)';
-                    const targetBotVal = (config && config.target_bot_id) ? `\`${config.target_bot_id}\`` : '❌ *Not Configured* (Use `!set-targetbot`)';
-                    const offsetVal = config ? `\`${config.sync_offset_ms}ms\`` : '`0ms`';
-
-                    const statusEmbed = new EmbedBuilder()
-                        .setColor(0x3498db)
-                        .setTitle('📊 Lyrika Bot Status & Config')
-                        .setDescription('Current database configuration details for this server:')
-                        .addFields(
-                            { name: '📥 Listen Channel', value: listenVal, inline: true },
-                            { name: '📤 Output Channel', value: outputVal, inline: true },
-                            { name: '🎵 Target Bot ID', value: targetBotVal, inline: true },
-                            { name: '⏱ Sync Offset', value: offsetVal, inline: true }
-                        )
-                        .setTimestamp();
-                    await message.reply({ embeds: [statusEmbed] }).catch(console.error);
-                });
-                return;
-            }
-        }
-    }
-
     await handleIncomingMessage(message, "CREATE");
 });
 
@@ -272,36 +148,142 @@ client.on('messageUpdate', async (oldMessage, newMessage) => {
     await handleIncomingMessage(newMessage, "UPDATE");
 });
 
-// Event hook for buttons
+// Event hook for slash commands and buttons
 client.on('interactionCreate', async interaction => {
-    if (!interaction.isButton()) return;
-    
     const guildId = interaction.guildId;
     if (!guildId) return;
 
-    if (interaction.customId === 'sync_back' || interaction.customId === 'sync_forward') {
-        db.get('SELECT sync_offset_ms FROM server_configs WHERE guild_id = ?', [guildId], (err, config) => {
-            let currentOffset = config ? config.sync_offset_ms : 0;
+    if (interaction.isChatInputCommand()) {
+        const { commandName } = interaction;
 
-            if (interaction.customId === 'sync_back') {
-                currentOffset -= 500;
-            } else {
-                currentOffset += 500;
+        // Permissions check: restrict to users with ManageChannels or Administrator permissions
+        const member = interaction.member;
+        if (!member || (!member.permissions.has(PermissionFlagsBits.ManageChannels) && !member.permissions.has(PermissionFlagsBits.Administrator))) {
+            await interaction.reply({ content: '❌ You do not have permission (`Manage Channels` or `Administrator`) to run this command.', ephemeral: true }).catch(console.error);
+            return;
+        }
+
+        if (commandName === 'setup-lyrics') {
+            const listenChannel = interaction.options.getChannel('listen-channel');
+            const outputChannel = interaction.options.getChannel('output-channel');
+
+            if (!listenChannel || !outputChannel) {
+                await interaction.reply({ content: '❌ One or both channels were not resolved properly.', ephemeral: true }).catch(console.error);
+                return;
+            }
+
+            db.run(
+                'INSERT INTO server_configs (guild_id, listen_channel_id, output_channel_id, target_bot_id, sync_offset_ms) VALUES (?, ?, ?, NULL, 0) ON CONFLICT(guild_id) DO UPDATE SET listen_channel_id=excluded.listen_channel_id, output_channel_id=excluded.output_channel_id',
+                [guildId, listenChannel.id, outputChannel.id],
+                async function(err) {
+                    if (err) {
+                        console.error(err.message);
+                        return interaction.reply({ content: '❌ Database error saving configuration.', ephemeral: true }).catch(console.error);
+                    }
+                    await interaction.reply(`✅ **Lyrics Configuration Setup Complete!**\n📥 **Listen Channel:** <#${listenChannel.id}> (ID: \`${listenChannel.id}\`)\n📤 **Output Channel:** <#${outputChannel.id}> (ID: \`${outputChannel.id}\`)`).catch(console.error);
+                }
+            );
+            return;
+        }
+
+        if (commandName === 'set-targetbot') {
+            const targetBot = interaction.options.getUser('bot');
+            if (!targetBot) {
+                await interaction.reply({ content: '❌ Bot user not resolved.', ephemeral: true }).catch(console.error);
+                return;
+            }
+
+            db.run(
+                'INSERT INTO server_configs (guild_id, listen_channel_id, output_channel_id, target_bot_id, sync_offset_ms) VALUES (?, "UNSET", "UNSET", ?, 0) ON CONFLICT(guild_id) DO UPDATE SET target_bot_id=excluded.target_bot_id',
+                [guildId, targetBot.id],
+                async (err) => {
+                    if (err) {
+                        console.error(err.message);
+                        return interaction.reply({ content: '❌ Database error saving configuration.', ephemeral: true }).catch(console.error);
+                    }
+                    await interaction.reply(`✅ **Target Bot ID** updated to <@${targetBot.id}> (ID: \`${targetBot.id}\`).`).catch(console.error);
+                }
+            );
+            return;
+        }
+
+        if (commandName === 'setoffset') {
+            const newOffset = interaction.options.getInteger('offset-ms');
+            if (newOffset === null) {
+                await interaction.reply({ content: '❌ Invalid offset value.', ephemeral: true }).catch(console.error);
+                return;
             }
 
             db.run(
                 'INSERT INTO server_configs (guild_id, listen_channel_id, output_channel_id, target_bot_id, sync_offset_ms) VALUES (?, "UNSET", "UNSET", NULL, ?) ON CONFLICT(guild_id) DO UPDATE SET sync_offset_ms=excluded.sync_offset_ms',
-                [guildId, currentOffset],
+                [guildId, newOffset],
                 async (err) => {
-                    if (err) return console.error(err.message);
-                    if (activeSessions.has(guildId)) {
-                        activeSessions.get(guildId).syncOffsetMs = currentOffset;
+                    if (err) {
+                        console.error(err.message);
+                        return interaction.reply({ content: '❌ Database error saving configuration.', ephemeral: true }).catch(console.error);
                     }
-                    const actionText = interaction.customId === 'sync_back' ? '⏪ Lyrics slowed down.' : '⏩ Lyrics jumped forward.';
-                    await interaction.reply({ content: `${actionText} Current Offset: **${currentOffset}ms**`, ephemeral: true });
+                    if (activeSessions.has(guildId)) {
+                        activeSessions.get(guildId).syncOffsetMs = newOffset;
+                    }
+                    await interaction.reply(`✅ **Sync Offset** updated to **${newOffset}ms** for this server.`).catch(console.error);
                 }
             );
-        });
+            return;
+        }
+
+        if (commandName === 'status') {
+            db.get('SELECT * FROM server_configs WHERE guild_id = ?', [guildId], async (err, config) => {
+                if (err) {
+                    console.error(err.message);
+                    return interaction.reply({ content: '❌ Database error retrieving configuration.', ephemeral: true }).catch(console.error);
+                }
+                const listenVal = (config && config.listen_channel_id !== 'UNSET') ? `<#${config.listen_channel_id}> (ID: \`${config.listen_channel_id}\`)` : '❌ *Not Configured* (Use `/setup-lyrics`)';
+                const outputVal = (config && config.output_channel_id !== 'UNSET') ? `<#${config.output_channel_id}> (ID: \`${config.output_channel_id}\`)` : '❌ *Not Configured* (Use `/setup-lyrics`)';
+                const targetBotVal = (config && config.target_bot_id) ? `<@${config.target_bot_id}> (ID: \`${config.target_bot_id}\`)` : '❌ *Not Configured* (Use `/set-targetbot`)';
+                const offsetVal = config ? `\`${config.sync_offset_ms}ms\`` : '`0ms`';
+
+                const statusEmbed = new EmbedBuilder()
+                    .setColor(0x3498db)
+                    .setTitle('📊 Lyrika Bot Status & Config')
+                    .setDescription('Current database configuration details for this server:')
+                    .addFields(
+                        { name: '📥 Listen Channel', value: listenVal, inline: true },
+                        { name: '📤 Output Channel', value: outputVal, inline: true },
+                        { name: '🎵 Target Bot ID', value: targetBotVal, inline: true },
+                        { name: '⏱ Sync Offset', value: offsetVal, inline: true }
+                    )
+                    .setTimestamp();
+                await interaction.reply({ embeds: [statusEmbed] }).catch(console.error);
+            });
+            return;
+        }
+    }
+
+    if (interaction.isButton()) {
+        if (interaction.customId === 'sync_back' || interaction.customId === 'sync_forward') {
+            db.get('SELECT sync_offset_ms FROM server_configs WHERE guild_id = ?', [guildId], (err, config) => {
+                let currentOffset = config ? config.sync_offset_ms : 0;
+
+                if (interaction.customId === 'sync_back') {
+                    currentOffset -= 500;
+                } else {
+                    currentOffset += 500;
+                }
+
+                db.run(
+                    'INSERT INTO server_configs (guild_id, listen_channel_id, output_channel_id, target_bot_id, sync_offset_ms) VALUES (?, "UNSET", "UNSET", NULL, ?) ON CONFLICT(guild_id) DO UPDATE SET sync_offset_ms=excluded.sync_offset_ms',
+                    [guildId, currentOffset],
+                    async (err) => {
+                        if (err) return console.error(err.message);
+                        if (activeSessions.has(guildId)) {
+                            activeSessions.get(guildId).syncOffsetMs = currentOffset;
+                        }
+                        const actionText = interaction.customId === 'sync_back' ? '⏪ Lyrics slowed down.' : '⏩ Lyrics jumped forward.';
+                        await interaction.reply({ content: `${actionText} Current Offset: **${currentOffset}ms**`, ephemeral: true });
+                    }
+                );
+            });
+        }
     }
 });
 
