@@ -653,4 +653,19 @@ process.on('unhandledRejection', error => {
 });
 
 // Boot
+console.log(`[BOOT] Attempting login...`);
+console.log(`[BOOT] Environment variable check:`);
+console.log(`  - YOUR_DISCORD_BOT_TOKEN: ${process.env.YOUR_DISCORD_BOT_TOKEN ? `defined (length: ${process.env.YOUR_DISCORD_BOT_TOKEN.length})` : 'undefined'}`);
+console.log(`  - DISCORD_TOKEN: ${process.env.DISCORD_TOKEN ? `defined (length: ${process.env.DISCORD_TOKEN.length})` : 'undefined'}`);
+console.log(`  - BOT_TOKEN: ${process.env.BOT_TOKEN ? `defined (length: ${process.env.BOT_TOKEN.length})` : 'undefined'}`);
+console.log(`[BOOT] Resolved CONFIG.TOKEN length: ${CONFIG.TOKEN.length}`);
+
+if (CONFIG.TOKEN.length === 0) {
+    console.error(`[FATAL] No Discord bot token found! Please set YOUR_DISCORD_BOT_TOKEN in your Wispbyte Startup settings.`);
+} else {
+    if (CONFIG.TOKEN.startsWith('"') || CONFIG.TOKEN.endsWith('"') || CONFIG.TOKEN.startsWith("'") || CONFIG.TOKEN.endsWith("'")) {
+        console.warn(`[WARNING] The resolved token starts or ends with quote characters. This will cause Discord to reject it. Please remove any quotes around the value in the Wispbyte panel.`);
+    }
+}
+
 client.login(CONFIG.TOKEN);
