@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, EmbedBuilder, ActivityType } = require('discord.js');
+const { Client, GatewayIntentBits, EmbedBuilder, ActivityType, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const axios = require('axios');
 const util = require('util');
 
@@ -29,6 +29,7 @@ client.once('ready', () => {
     client.user.setActivity('Now Playing messages...', { type: ActivityType.Listening });
     console.log(`[BOOT] Configuration loaded. Tracking Bot ID: ${CONFIG.TARGET_BOT_ID}`);
     console.log(`[BOOT] Listening on Channel: ${CONFIG.LISTEN_CHANNEL_ID} | Outputting to: ${CONFIG.OUTPUT_CHANNEL_ID}`);
+    console.log(`[BOOT] Loaded Sync Offset: ${CONFIG.SYNC_OFFSET_MS}ms`);
     
     // Log the intents requested by the client to verify
     const requestedIntents = client.options.intents.toArray();
@@ -57,6 +58,19 @@ client.on('messageUpdate', async (oldMessage, newMessage) => {
         console.log(`[DEBUG messageUpdate] Embed 0 - Title: "${newMessage.embeds[0].title || ''}" | Description: "${newMessage.embeds[0].description || ''}"`);
     }
     await handleIncomingMessage(newMessage, "UPDATE");
+});
+
+// Event hook for buttons
+client.on('interactionCreate', async interaction => {
+    if (!interaction.isButton()) return;
+    
+    if (interaction.customId === 'sync_back') {
+        CONFIG.SYNC_OFFSET_MS -= 500;
+        await interaction.reply({ content: `⏪ Lyrics slowed down. Current Offset: **${CONFIG.SYNC_OFFSET_MS}ms**`, ephemeral: true });
+    } else if (interaction.customId === 'sync_forward') {
+        CONFIG.SYNC_OFFSET_MS += 500;
+        await interaction.reply({ content: `⏩ Lyrics jumped forward. Current Offset: **${CONFIG.SYNC_OFFSET_MS}ms**`, ephemeral: true });
+    }
 });
 
 // ==========================================
@@ -134,6 +148,11 @@ async function handleIncomingMessage(message, eventType) {
     console.log(`[GATEKEEPER - ${eventType}] Content check: Text Exists=${!!textExists} | Text length=${messageText?.length || 0}`);
     if (!textExists) return;
 
+    if (!messageText.toLowerCase().includes('now playing')) {
+        console.log(`[GATEKEEPER - ${eventType}] Ignored message because it is not a "Now Playing" message.`);
+        return;
+    }
+
     console.log(`\n======================================================`);
     console.log(`[EVENT] Target Bot Message Received in Listen Channel`);
     console.log(`[DEBUG] Raw Payload Text: ${messageText.replace(/\n/g, '\\n')}`);
@@ -161,9 +180,20 @@ async function handleIncomingMessage(message, eventType) {
         clearInterval(currentSession.intervalId);
         if (currentSession.displayMessage) {
             try {
+                const buttonRow = new ActionRowBuilder()
+                    .addComponents(
+                        new ButtonBuilder()
+                            .setCustomId('sync_back')
+                            .setLabel('⏪ -0.5s')
+                            .setStyle(ButtonStyle.Primary),
+                        new ButtonBuilder()
+                            .setCustomId('sync_forward')
+                            .setLabel('⏩ +0.5s')
+                            .setStyle(ButtonStyle.Primary)
+                    );
                 const finalEmbed = EmbedBuilder.from(currentSession.displayMessage.embeds[0])
                     .setDescription('🎵 *Track playback finished or skipped.*');
-                await currentSession.displayMessage.edit({ embeds: [finalEmbed] });
+                await currentSession.displayMessage.edit({ embeds: [finalEmbed], components: [buttonRow] });
             } catch(e) { /* ignore */ }
         }
         activeSessions.delete(guildId);
@@ -193,7 +223,19 @@ async function handleIncomingMessage(message, eventType) {
         .setDescription('Preparing sync track...\n\n*Waiting for playback...*')
         .setFooter({ text: `Query: ${searchString} | Synced via LRCLIB` });
 
-    const displayMessage = await outputChannel.send({ embeds: [displayEmbed] });
+    const buttonRow = new ActionRowBuilder()
+        .addComponents(
+            new ButtonBuilder()
+                .setCustomId('sync_back')
+                .setLabel('⏪ -0.5s')
+                .setStyle(ButtonStyle.Primary),
+            new ButtonBuilder()
+                .setCustomId('sync_forward')
+                .setLabel('⏩ +0.5s')
+                .setStyle(ButtonStyle.Primary)
+        );
+
+    const displayMessage = await outputChannel.send({ embeds: [displayEmbed], components: [buttonRow] });
     console.log(`[RENDER] Initial embed posted to Output Channel.`);
 
     // Build Execution State Context
@@ -406,9 +448,20 @@ async function runSyncLoop(guildId) {
         }
 
         try {
+            const buttonRow = new ActionRowBuilder()
+                .addComponents(
+                    new ButtonBuilder()
+                        .setCustomId('sync_back')
+                        .setLabel('⏪ -0.5s')
+                        .setStyle(ButtonStyle.Primary),
+                    new ButtonBuilder()
+                        .setCustomId('sync_forward')
+                        .setLabel('⏩ +0.5s')
+                        .setStyle(ButtonStyle.Primary)
+                );
             const updateEmbed = EmbedBuilder.from(session.displayMessage.embeds[0])
                 .setDescription(dynamicDisplayBuffer);
-            await session.displayMessage.edit({ embeds: [updateEmbed] });
+            await session.displayMessage.edit({ embeds: [updateEmbed], components: [buttonRow] });
         } catch (apiError) {
             console.error(`[ERROR] Discord API Edit Drop: ${apiError.message}`);
         }
