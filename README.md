@@ -27,6 +27,14 @@ A Discord bot that provides synchronized, real-time scrolling lyrics for the mus
 | `/setoffset` | Fine-tune the lyric timing offset for the server. |
 | `/status` | View the current configuration status. |
 
+## 💖 Support the Project
+
+Keeping the lyrics flowing in real-time requires reliable hosting, API resources, and ongoing development (plus a lot of caffeine). 
+
+If Lyrika-Stanza has leveled up your server's listening parties or karaoke nights, please consider supporting the project! Your contributions directly help keep the servers running smoothly and fuel future updates.
+
+[![Support on Ko-fi](https://img.shields.io/badge/Support_on-Ko--fi-FF5E5B.svg?style=for-the-badge&logo=ko-fi&logoColor=white)](https://ko-fi.com/notkoneko3)
+
 ## Contributing
 
 Bug reports, feature requests, and pull requests are welcome. Feel free to open an issue if you find a bug or want to suggest an improvement.
