@@ -1,47 +1,62 @@
-# Lyrika-Stanza
+# 🎤 Lyrika-Stanza (Technical Showcase)
 
-Lyrika-Stanza is a live time-synced lyrics stream bot for Discord. It intercepts "Now Playing" messages from specific music bots (even those using dirty markdown embeds), fetches time-synced lyrics via LRCLIB's search API, and displays a rolling visualization of the lyrics synced perfectly to the playback in a dedicated text channel.
+A robust, time-synchronized lyrics visualization service designed for Discord, featuring a custom track parser, seamless LRCLIB integration, and a multi-server SQLite backend.
 
-## Features
-- **Live Synchronized Lyrics:** Displays rolling lyrics with a highlighted focus frame (`👉`).
-- **Aggressive Parsing:** Cleans raw markdown, strips Discord custom emojis, pings, timestamps, and links from the music bot payload.
-- **API Search Engine:** Hits `lrclib.net/api/search` using the cleaned track/artist query.
-- **Rate-Limited Engine:** Refreshes the display embed strictly when the lyric line changes to avoid Discord rate limits.
-- **Docker Ready:** Built to run instantly in a lightweight container.
+## 🛠️ Architecture & Technical Overview
 
-## Requirements
-- Docker and Docker Compose
-- A Discord Bot Token (Ensure the bot has `Message Content` intent enabled in the Developer Portal)
-- The User ID of the target music bot you want this bot to follow
-- The IDs of the input and output text channels
+Lyrika-Stanza intercepts playing events from other music bots, queries the LRCLIB API for synchronized `.lrc` timestamps, and renders a live, scrolling UI updated dynamically via Discord's message editing endpoints.
 
-## Setup and Installation
+### Key Components:
+- **Event Interceptor**: Listens to `messageCreate` and `messageUpdate` to track embeds from target bots.
+- **Query Sanitizer**: A sophisticated Regex pipeline strips emojis, URLs, and markdown from embed titles/descriptions to form high-confidence artist/track search queries.
+- **Live Sync Engine**: Uses a non-blocking `setInterval` tick (400ms) to track playback time. Only fires API requests to edit Discord messages when the active lyric line changes, ensuring strict compliance with Discord rate limits.
+- **Data Persistence**: Uses `sqlite3` to store guild-specific configurations, including the target music bot ID, designated listening/output channels, and timing offsets.
 
-1. **Clone the repository:**
-   ```bash
-   git clone https://github.com/NottKoneko/Lyrika-Stanza.git
-   cd Lyrika-Stanza
-   ```
+---
 
-2. **Configure your tokens:**
-   Create a `.env` file in the project root:
-   ```env
-   YOUR_DISCORD_BOT_TOKEN=your_bot_token_here
-   TARGET_BOT_USER_ID=target_music_bot_id_here
-   LISTEN_CHANNEL_ID=channel_id_where_music_bot_posts
-   OUTPUT_CHANNEL_ID=channel_id_where_lyrics_will_display
-   SYNC_OFFSET_MS=1500 (Optional: Adjust sync timing in milliseconds. Positive jumps lyrics forward, negative slows them down. Default is 0)
-   ```
+## 🚀 Local Deployment Guide
 
-3. **Run the bot via Docker Compose:**
-   ```bash
-   docker-compose up -d --build
-   ```
-   This will build the image and run your bot in the background automatically. To view the debug pipeline (message received -> cleaned string -> LRCLIB match), run:
-   ```bash
-   docker-compose logs -f
-   ```
+### Prerequisites
+- [Node.js](https://nodejs.org/) (v16.11.0 or higher recommended)
+- A Discord Bot Application with the **Message Content Intent** enabled.
 
-## Technical Notes
-- The bot utilizes the `messageCreate` and `messageUpdate` hooks to track song progression.
-- The visualization frame polls every 400ms internally, but only sends `message.edit()` requests to the Discord API when the visual frame shifts, ensuring stability.
+### 1. Environment Setup
+Clone the repository and create a `.env` file in the project root:
+```env
+YOUR_DISCORD_BOT_TOKEN=your_bot_token_here
+```
+*(The application gracefully falls back to `DISCORD_TOKEN`, `BOT_TOKEN`, or `TOKEN`).*
+
+### 2. Dependency Installation
+Install the required packages using NPM:
+```bash
+npm install
+```
+
+### 3. Execution
+Start the service:
+```bash
+node index.js
+```
+Upon startup, the SQLite database is automatically initialized, and global slash commands are synced with the Discord API.
+
+---
+
+## 📡 Slash Commands API
+
+| Command | Parameters | Description |
+| :--- | :--- | :--- |
+| `/setup-lyrics` | `listen-channel`, `output-channel` | Initializes the DB entry for the guild, routing intercept/output. |
+| `/set-targetbot` | `bot` | Updates the DB with the target Snowflake ID of the music bot. |
+| `/setoffset` | `offset-ms` | Stores a user-defined latency offset integer (positive/negative) for the guild. |
+| `/status` | *None* | Queries the DB and returns the current active configuration for the guild. |
+
+---
+
+## 🐳 Docker Support
+
+To run the service inside an isolated container with persistent DB volume:
+```bash
+docker build -t lyrika-stanza .
+docker run -d --name lyrika-stanza -v $(pwd)/database.sqlite:/usr/src/app/database.sqlite -e YOUR_DISCORD_BOT_TOKEN="your_token" lyrika-stanza
+```
