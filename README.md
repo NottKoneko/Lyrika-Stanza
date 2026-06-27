@@ -8,7 +8,8 @@ A Discord bot that provides synchronized, real-time scrolling lyrics for the mus
 
 - **Live Scrolling Lyrics:** Displays a sliding window of lyrics with a focus frame (`👉`) indicating the current line.
 - **Interactive Sync:** Users can manually adjust lyric latency on the fly using inline Discord buttons (`⏪ -0.5s` and `⏩ +0.5s`).
-- **Bot Agnostic:** Automatically parses "now playing" messages from most major Discord music bots (Jockie Music, FredBoat, etc.) by stripping emojis and markdown to identify the current track.
+- **Bot Agnostic:** Automatically parses "now playing" messages from most major Discord music bots by stripping emojis and markdown to identify the current track.
+- Currently supports **Chip**, with support for more bots coming soon (such as Jockie Music, FredBoat, Vexera, Uzox, and Kenku FM).
 - **Zero Config Files:** Fully configurable within Discord using slash commands. No local files to edit.
 
 ## Quick Start
