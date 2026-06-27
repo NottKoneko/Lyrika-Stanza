@@ -1,43 +1,31 @@
-# 🎤 Lyrika-Stanza
-
-🎶 **Bring your Discord voice channels to life with real-time, scrolling lyrics!** 🎶
+# Lyrika-Stanza
 
 [![Discord.js](https://img.shields.io/badge/discord.js-v14.15-blue.svg?logo=discord&logoColor=white)](https://discord.js.org/)
-[![Made with Love](https://img.shields.io/badge/Made_with-💖-pink.svg)](#)
 
-Have you ever wanted to sing along with your friends but didn't know the words? **Lyrika-Stanza** is a beautifully designed, time-synchronized lyrics visualization bot for Discord. It automatically detects the songs your music bots are playing and streams the lyrics in real-time right into your chat!
+A Discord bot that provides synchronized, real-time scrolling lyrics for the music playing in your voice channels. Lyrika-Stanza detects songs being played by other music bots and streams the lyrics directly into your text chat.
 
----
+## Features
 
-## ✨ Why You'll Love Lyrika-Stanza
+- **Live Scrolling Lyrics:** Displays a sliding window of lyrics with a focus frame (`👉`) indicating the current line.
+- **Interactive Sync:** Users can manually adjust lyric latency on the fly using inline Discord buttons (`⏪ -0.5s` and `⏩ +0.5s`).
+- **Bot Agnostic:** Automatically parses "now playing" messages from most major Discord music bots (Jockie Music, FredBoat, etc.) by stripping emojis and markdown to identify the current track.
+- **Zero Config Files:** Fully configurable within Discord using slash commands. No local files to edit.
 
-*   **🎙️ Live Scrolling Lyrics:** Experience a sleek, sliding window of lyrics with a dynamic focus frame (`👉`) that points directly at the line you should be singing right now!
-*   **🕹️ Interactive Sync Buttons:** Not perfectly synced? No problem! Users can instantly adjust the lyric latency on the fly with clickable `⏪ -0.5s` and `⏩ +0.5s` buttons on the message itself.
-*   **🛠️ Zero Config Files:** Set up everything directly inside your server using intuitive Discord Slash Commands! No complicated files to edit.
-*   **🤖 Universal Compatibility:** Works seamlessly with your favorite music bots (Jockie Music, FredBoat, and more!). Our smart parser strips away emojis and markdown to find exactly what you're listening to.
+## Quick Start
 
----
+1. **Invite the bot** to your Discord server.
+2. **Configure channels:** Run `/setup-lyrics` to assign where the bot listens for music updates and where it should post the lyrics.
+3. **Target your music bot:** Run `/set-targetbot` and tag your server's music bot so Lyrika-Stanza knows who to track.
 
-## 🎮 Get Started in 3 Easy Steps!
+## Commands
 
-1.  **Invite the Bot:** Add Lyrika-Stanza to your server.
-2.  **Pick Your Channels:** Use `/setup-lyrics` to tell the bot where to listen for music and where to post the lyrics.
-3.  **Choose Your Music Bot:** Use `/set-targetbot` to point Lyrika-Stanza at your server's music player.
-
-*Boom!* You're ready to host the ultimate Discord Karaoke night! 🎤🕺
-
----
-
-## 💻 Commands Reference
-
-| Command | What it does |
+| Command | Description |
 | :--- | :--- |
-| `/setup-lyrics` | Configure your listening and output channels. |
-| `/set-targetbot` | Set the music bot user you want to track. |
-| `/setoffset` | Fine-tune the lyric timing offset for your entire server. |
-| `/status` | Check if everything is configured perfectly! |
+| `/setup-lyrics` | Configure the listening and output channels. |
+| `/set-targetbot` | Set the target music bot you want to track. |
+| `/setoffset` | Fine-tune the lyric timing offset for the server. |
+| `/status` | View the current configuration status. |
 
----
+## Contributing
 
-### ❤️ Support & Contributions
-Love the bot? Found a bug? Have an awesome idea? Feel free to open an issue or drop a pull request! Let's make Discord music even better, together. 🎶
+Bug reports, feature requests, and pull requests are welcome. Feel free to open an issue if you find a bug or want to suggest an improvement.
