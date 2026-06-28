@@ -335,6 +335,12 @@ function getMessageText(message) {
     return extractSongInfo(message);
 }
 
+function isMessagePaused(text) {
+    if (!text) return false;
+    const lower = text.toLowerCase();
+    return lower.includes('chipbot_pause') || lower.includes('pause') || lower.includes('⏸') || lower.includes('paused');
+}
+
 // Helper to bridge sqlite callback into async/await logic
 function getGuildConfig(guildId) {
     return new Promise((resolve, reject) => {
@@ -379,11 +385,28 @@ async function handleIncomingMessage(message, eventType) {
     
     console.log(`[PARSER] Cleaned Search Query Generated: "${searchString}"`);
 
-    // Prevent duplicate triggers for the same song query
+    // Prevent duplicate triggers for the same song query, but handle PAUSE / RESUME state changes!
     if (activeSessions.has(guildId)) {
         const currentSession = activeSessions.get(guildId);
         if (currentSession.searchString === searchString) {
-            console.log(`[STATE] Already tracking this song. Ignoring duplicate event.`);
+            const paused = isMessagePaused(messageText);
+            if (paused && !currentSession.isPaused) {
+                console.log(`[STATE] Playback PAUSED for guild ${guildId}`);
+                currentSession.isPaused = true;
+                currentSession.pauseStartTime = Date.now();
+                
+                try {
+                    const pausedEmbed = EmbedBuilder.from(currentSession.displayMessage.embeds[0])
+                        .setDescription('⏸️ **Playback Paused**\n\n*Lyrics sync frozen until resumed.*');
+                    currentSession.displayMessage.edit({ embeds: [pausedEmbed] }).catch(() => {});
+                } catch (e) {}
+            } else if (!paused && currentSession.isPaused) {
+                console.log(`[STATE] Playback RESUMED for guild ${guildId}`);
+                const pauseDuration = Date.now() - currentSession.pauseStartTime;
+                currentSession.startTime += pauseDuration;
+                currentSession.isPaused = false;
+                currentSession.lastLineIndex = -2; // Force re-render of current line
+            }
             return;
         }
         // Song changed: clear previous loop
@@ -412,15 +435,6 @@ async function handleIncomingMessage(message, eventType) {
         activeSessions.delete(guildId);
     }
 
-    // Fetch synced tracking data using LRCLIB search API
-    const lyricsData = await fetchLyricsFromLRCLIB(searchString);
-    if (!lyricsData || lyricsData.length === 0) {
-        console.log(`[API] No synced lyrics found for "${searchString}".`);
-        return;
-    }
-
-    console.log(`[API] Synced lyrics successfully parsed (${lyricsData.length} lines).`);
-
     // Fetch the designated output channel
     const outputChannel = client.channels.cache.get(config.output_channel_id) || await client.channels.fetch(config.output_channel_id).catch(() => null);
     
@@ -428,6 +442,21 @@ async function handleIncomingMessage(message, eventType) {
         console.error(`[ERROR] Could not resolve Output Channel ID: ${config.output_channel_id}`);
         return;
     }
+
+    // Fetch synced tracking data using LRCLIB search API
+    const lyricsData = await fetchLyricsFromLRCLIB(searchString);
+    if (!lyricsData || lyricsData.length === 0) {
+        console.log(`[API] No synced lyrics found for "${searchString}".`);
+        const noLyricsEmbed = new EmbedBuilder()
+            .setColor(0xe74c3c)
+            .setTitle(`🎤 Live Lyrics Visualizer`)
+            .setDescription('❌ **Lyrics not available for this track.**')
+            .setFooter({ text: `Query: ${searchString}` });
+        await outputChannel.send({ embeds: [noLyricsEmbed] }).catch(console.error);
+        return;
+    }
+
+    console.log(`[API] Synced lyrics successfully parsed (${lyricsData.length} lines).`);
 
     // Initialize display canvas message
     const displayEmbed = new EmbedBuilder()
@@ -452,6 +481,7 @@ async function handleIncomingMessage(message, eventType) {
     console.log(`[RENDER] Initial embed posted to Output Channel.`);
 
     // Build Execution State Context
+    const initialPaused = isMessagePaused(messageText);
     const session = {
         searchString,
         lyrics: lyricsData,
@@ -459,7 +489,9 @@ async function handleIncomingMessage(message, eventType) {
         startTime: message.createdTimestamp,
         lastLineIndex: -1,
         intervalId: null,
-        syncOffsetMs: config.sync_offset_ms || 0
+        syncOffsetMs: config.sync_offset_ms || 0,
+        isPaused: initialPaused,
+        pauseStartTime: initialPaused ? Date.now() : 0
     };
 
     activeSessions.set(guildId, session);
@@ -586,7 +618,7 @@ function parseLRC(lrcText) {
 
 async function runSyncLoop(guildId) {
     const session = activeSessions.get(guildId);
-    if (!session) return;
+    if (!session || session.isPaused) return;
 
     const elapsedTime = ((Date.now() - session.startTime) + session.syncOffsetMs) / 1000;
     
