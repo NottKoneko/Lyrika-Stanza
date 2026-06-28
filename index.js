@@ -390,7 +390,8 @@ async function handleIncomingMessage(message, eventType) {
     // Check 3: Content Check
     const messageText = getMessageText(message);
     if (!messageText || messageText.trim() === '') return;
-    if (!messageText.toLowerCase().includes('now playing')) return;
+    const lowerText = messageText.toLowerCase();
+    if (!activeSessions.has(guildId) && !lowerText.includes('now playing') && !lowerText.includes('playing')) return;
 
     console.log(`\n======================================================`);
     console.log(`[EVENT ${eventType}] Target Bot Message Received in Listen Channel (Message ID: ${message.id})`);
