@@ -335,10 +335,23 @@ function getMessageText(message) {
     return extractSongInfo(message);
 }
 
-function isMessagePaused(text) {
-    if (!text) return false;
-    const lower = text.toLowerCase();
-    return lower.includes('chipbot_pause') || lower.includes('pause') || lower.includes('⏸') || lower.includes('paused');
+function isMessagePaused(message) {
+    if (!message) return false;
+    let bodyText = message.content || "";
+    if (message.embeds?.length > 0) {
+        message.embeds.forEach(embed => {
+            if (embed.title) bodyText += "\n" + embed.title;
+            if (embed.description) bodyText += "\n" + embed.description;
+            if (embed.footer?.text) bodyText += "\n" + embed.footer.text;
+            if (embed.fields?.length > 0) {
+                embed.fields.forEach(f => {
+                    bodyText += "\n" + (f.name || '') + " " + (f.value || '');
+                });
+            }
+        });
+    }
+    const lower = bodyText.toLowerCase();
+    return lower.includes('playback paused') || lower.includes('currently paused') || lower.includes('status: paused') || lower.includes('⏸️ paused') || lower.includes('[paused]');
 }
 
 // Helper to bridge sqlite callback into async/await logic
@@ -389,7 +402,7 @@ async function handleIncomingMessage(message, eventType) {
     if (activeSessions.has(guildId)) {
         const currentSession = activeSessions.get(guildId);
         if (currentSession.searchString === searchString) {
-            const paused = isMessagePaused(messageText);
+            const paused = isMessagePaused(message);
             if (paused && !currentSession.isPaused) {
                 console.log(`[STATE] Playback PAUSED for guild ${guildId}`);
                 currentSession.isPaused = true;
@@ -481,12 +494,12 @@ async function handleIncomingMessage(message, eventType) {
     console.log(`[RENDER] Initial embed posted to Output Channel.`);
 
     // Build Execution State Context
-    const initialPaused = isMessagePaused(messageText);
+    const initialPaused = isMessagePaused(message);
     const session = {
         searchString,
         lyrics: lyricsData,
         displayMessage,
-        startTime: Date.now(),
+        startTime: message.editedTimestamp || message.createdTimestamp,
         lastLineIndex: -2,
         intervalId: null,
         syncOffsetMs: config.sync_offset_ms || 0,
