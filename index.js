@@ -442,13 +442,9 @@ async function handleIncomingMessage(message, eventType) {
                     currentSession.displayMessage.edit({ embeds: [pausedEmbed] }).catch((err) => console.error(`[ERROR] Edit paused embed failed: ${err.message}`));
                 } catch (e) {}
             } else if (!paused && currentSession.isPaused) {
-                console.log(`[STATE] Playback RESUMED for guild ${guildId}`);
                 const resumeTimestamp = message.editedTimestamp || Date.now();
-                const pingLatency = (client.ws.ping > 0 ? client.ws.ping : 50);
-                // Voice stream buffering overhead when resuming usually adds ~400ms before audio frames actually reach listeners
-                const voiceBufferDelay = 400;
-                const pauseDuration = (resumeTimestamp - currentSession.pauseStartTime) + voiceBufferDelay + (pingLatency / 2);
-                console.log(`[STATE RESUME DEBUG] pauseDuration calculated: ${pauseDuration}ms (editDiff: ${resumeTimestamp - currentSession.pauseStartTime}ms, ping/2: ${pingLatency/2}ms)`);
+                const pauseDuration = resumeTimestamp - currentSession.pauseStartTime;
+                console.log(`[STATE RESUME DEBUG] Playback RESUMED. pauseDuration: ${pauseDuration}ms (pauseStart: ${currentSession.pauseStartTime}, resume: ${resumeTimestamp})`);
                 currentSession.startTime += pauseDuration;
                 currentSession.isPaused = false;
                 currentSession.lastLineIndex = -2; // Force re-render of current line
