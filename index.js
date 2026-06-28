@@ -647,6 +647,8 @@ async function runSyncLoop(guildId) {
             console.error(`[ERROR] Discord API Edit Drop: ${apiError.message}`);
         }
     }
+}
+
 // HTTP Health Server for portfolio status monitoring
 const http = require('http');
 const HEALTH_PORT = process.env.PORT || process.env.HEALTH_PORT || 3001;
