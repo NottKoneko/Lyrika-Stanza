@@ -341,20 +341,23 @@ function isMessagePaused(message) {
     if (!message) return false;
     let bodyText = message.content || "";
     if (message.embeds?.length > 0) {
-        message.embeds.forEach(embed => {
-            if (embed.author?.name) bodyText += "\n" + embed.author.name;
-            if (embed.title) bodyText += "\n" + embed.title;
-            if (embed.description) bodyText += "\n" + embed.description;
-            if (embed.footer?.text) bodyText += "\n" + embed.footer.text;
+        message.embeds.forEach((embed, idx) => {
+            if (embed.author?.name) bodyText += `\n[Embed ${idx} Author]: ` + embed.author.name;
+            if (embed.title) bodyText += `\n[Embed ${idx} Title]: ` + embed.title;
+            if (embed.description) bodyText += `\n[Embed ${idx} Desc]: ` + embed.description;
+            if (embed.footer?.text) bodyText += `\n[Embed ${idx} Footer]: ` + embed.footer.text;
             if (embed.fields?.length > 0) {
                 embed.fields.forEach(f => {
-                    bodyText += "\n" + (f.name || '') + " " + (f.value || '');
+                    bodyText += `\n[Embed ${idx} Field]: ` + (f.name || '') + " = " + (f.value || '');
                 });
             }
         });
     }
     const lower = bodyText.toLowerCase();
-    return lower.includes('chipbot_pause') || lower.includes('paused') || lower.includes('⏸') || lower.includes('playback paused') || lower.includes('currently paused');
+    const isPausedResult = lower.includes('chipbot_pause') || lower.includes('paused') || lower.includes('⏸') || lower.includes('playback paused') || lower.includes('currently paused');
+    console.log(`[DEBUG PAUSE CHECK] Extracted Body Text:\n${bodyText}`);
+    console.log(`[DEBUG PAUSE CHECK] Evaluated isPaused: ${isPausedResult}`);
+    return isPausedResult;
 }
 
 // Helper to bridge sqlite callback into async/await logic
@@ -390,7 +393,8 @@ async function handleIncomingMessage(message, eventType) {
     if (!messageText.toLowerCase().includes('now playing')) return;
 
     console.log(`\n======================================================`);
-    console.log(`[EVENT] Target Bot Message Received in Listen Channel`);
+    console.log(`[EVENT ${eventType}] Target Bot Message Received in Listen Channel (Message ID: ${message.id})`);
+    console.log(`[PARSER DEBUG] Full Extracted Message Text:\n${messageText}`);
 
     // Clean and parse the message content
     const searchString = extractSearchString(messageText);
@@ -404,8 +408,10 @@ async function handleIncomingMessage(message, eventType) {
     // Prevent duplicate triggers for the same song query, but handle PAUSE / RESUME state changes!
     if (activeSessions.has(guildId)) {
         const currentSession = activeSessions.get(guildId);
+        console.log(`[STATE DEBUG] Active session exists for guild ${guildId}. Current track: "${currentSession.searchString}", Incoming query: "${searchString}"`);
         if (currentSession.searchString === searchString) {
             const paused = isMessagePaused(message);
+            console.log(`[STATE DEBUG] Match found! Session isPaused: ${currentSession.isPaused}, Incoming paused: ${paused}`);
             if (paused && !currentSession.isPaused) {
                 console.log(`[STATE] Playback PAUSED for guild ${guildId}`);
                 currentSession.isPaused = true;
@@ -414,7 +420,7 @@ async function handleIncomingMessage(message, eventType) {
                 try {
                     const pausedEmbed = EmbedBuilder.from(currentSession.displayMessage.embeds[0])
                         .setDescription('⏸️ **Playback Paused**\n\n*Lyrics sync frozen until resumed.*');
-                    currentSession.displayMessage.edit({ embeds: [pausedEmbed] }).catch(() => {});
+                    currentSession.displayMessage.edit({ embeds: [pausedEmbed] }).catch((err) => console.error(`[ERROR] Edit paused embed failed: ${err.message}`));
                 } catch (e) {}
             } else if (!paused && currentSession.isPaused) {
                 console.log(`[STATE] Playback RESUMED for guild ${guildId}`);
@@ -672,6 +678,7 @@ async function runSyncLoop(guildId) {
     }
 
     if (currentLineIndex !== session.lastLineIndex) {
+        console.log(`[ENGINE DEBUG] Rendering update for guild ${guildId}: lineIndex changed from ${session.lastLineIndex} to ${currentLineIndex} (elapsed: ${elapsedTime.toFixed(1)}s)`);
         session.lastLineIndex = currentLineIndex;
         
         let dynamicDisplayBuffer = '';
