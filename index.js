@@ -486,8 +486,8 @@ async function handleIncomingMessage(message, eventType) {
         searchString,
         lyrics: lyricsData,
         displayMessage,
-        startTime: message.createdTimestamp,
-        lastLineIndex: -1,
+        startTime: Date.now(),
+        lastLineIndex: -2,
         intervalId: null,
         syncOffsetMs: config.sync_offset_ms || 0,
         isPaused: initialPaused,
@@ -645,18 +645,26 @@ async function runSyncLoop(guildId) {
         return;
     }
 
-    if (currentLineIndex !== session.lastLineIndex && currentLineIndex !== -1) {
+    if (currentLineIndex !== session.lastLineIndex) {
         session.lastLineIndex = currentLineIndex;
         
         let dynamicDisplayBuffer = '';
-        const startWindow = Math.max(0, currentLineIndex - 2);
-        const endWindow = Math.min(session.lyrics.length - 1, currentLineIndex + 2);
-
-        for (let j = startWindow; j <= endWindow; j++) {
-            if (j === currentLineIndex) {
-                dynamicDisplayBuffer += `👉 **${session.lyrics[j].text}**\n`;
-            } else {
+        if (currentLineIndex === -1) {
+            dynamicDisplayBuffer += `🎶 *[Instrumental Intro]*\n\n`;
+            const endWindow = Math.min(session.lyrics.length - 1, 2);
+            for (let j = 0; j <= endWindow; j++) {
                 dynamicDisplayBuffer += `🔹 *${session.lyrics[j].text}*\n`;
+            }
+        } else {
+            const startWindow = Math.max(0, currentLineIndex - 2);
+            const endWindow = Math.min(session.lyrics.length - 1, currentLineIndex + 2);
+
+            for (let j = startWindow; j <= endWindow; j++) {
+                if (j === currentLineIndex) {
+                    dynamicDisplayBuffer += `👉 **${session.lyrics[j].text}**\n`;
+                } else {
+                    dynamicDisplayBuffer += `🔹 *${session.lyrics[j].text}*\n`;
+                }
             }
         }
 
