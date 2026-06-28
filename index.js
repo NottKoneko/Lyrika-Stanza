@@ -351,7 +351,7 @@ function isMessagePaused(message) {
         });
     }
     const lower = bodyText.toLowerCase();
-    return lower.includes('playback paused') || lower.includes('currently paused') || lower.includes('status: paused') || lower.includes('⏸️ paused') || lower.includes('[paused]');
+    return lower.includes('chipbot_pause') || lower.includes('paused') || lower.includes('⏸') || lower.includes('playback paused') || lower.includes('currently paused');
 }
 
 // Helper to bridge sqlite callback into async/await logic
