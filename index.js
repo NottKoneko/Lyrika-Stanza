@@ -434,7 +434,7 @@ async function handleIncomingMessage(message, eventType) {
             if (paused && !currentSession.isPaused) {
                 console.log(`[STATE] Playback PAUSED for guild ${guildId}`);
                 currentSession.isPaused = true;
-                currentSession.pauseStartTime = Date.now();
+                currentSession.pauseStartTime = message.editedTimestamp || Date.now();
                 
                 try {
                     const pausedEmbed = EmbedBuilder.from(currentSession.displayMessage.embeds[0])
@@ -443,7 +443,12 @@ async function handleIncomingMessage(message, eventType) {
                 } catch (e) {}
             } else if (!paused && currentSession.isPaused) {
                 console.log(`[STATE] Playback RESUMED for guild ${guildId}`);
-                const pauseDuration = Date.now() - currentSession.pauseStartTime;
+                const resumeTimestamp = message.editedTimestamp || Date.now();
+                const pingLatency = (client.ws.ping > 0 ? client.ws.ping : 50);
+                // Voice stream buffering overhead when resuming usually adds ~400ms before audio frames actually reach listeners
+                const voiceBufferDelay = 400;
+                const pauseDuration = (resumeTimestamp - currentSession.pauseStartTime) + voiceBufferDelay + (pingLatency / 2);
+                console.log(`[STATE RESUME DEBUG] pauseDuration calculated: ${pauseDuration}ms (editDiff: ${resumeTimestamp - currentSession.pauseStartTime}ms, ping/2: ${pingLatency/2}ms)`);
                 currentSession.startTime += pauseDuration;
                 currentSession.isPaused = false;
                 currentSession.lastLineIndex = -2; // Force re-render of current line
@@ -539,7 +544,7 @@ async function handleIncomingMessage(message, eventType) {
             intervalId: null,
             syncOffsetMs: config.sync_offset_ms || 0,
             isPaused: initialPaused,
-            pauseStartTime: initialPaused ? Date.now() : 0
+            pauseStartTime: initialPaused ? (message.editedTimestamp || Date.now()) : 0
         };
 
         activeSessions.set(guildId, session);
