@@ -651,7 +651,7 @@ async function runSyncLoop(guildId) {
 
 // HTTP Health Server for portfolio status monitoring
 const http = require('http');
-const HEALTH_PORT = process.env.PORT || process.env.HEALTH_PORT || 3001;
+const HEALTH_PORT = process.env.PORT || process.env.HEALTH_PORT || 13656;
 
 http.createServer((req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -670,8 +670,8 @@ http.createServer((req, res) => {
         res.writeHead(404);
         res.end();
     }
-}).listen(HEALTH_PORT, () => {
-    console.log(`[STATUS SERVER] Health check endpoint active on port ${HEALTH_PORT}`);
+}).listen(HEALTH_PORT, '0.0.0.0', () => {
+    console.log(`[STATUS SERVER] Health check endpoint active on 0.0.0.0:${HEALTH_PORT}`);
 });
 
 // Global unhandled promise rejection catching to keep bot alive
