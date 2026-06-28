@@ -540,7 +540,9 @@ async function handleIncomingMessage(message, eventType) {
             intervalId: null,
             syncOffsetMs: config.sync_offset_ms || 0,
             isPaused: initialPaused,
-            pauseStartTime: initialPaused ? (message.editedTimestamp || Date.now()) : 0
+            pauseStartTime: initialPaused ? (message.editedTimestamp || Date.now()) : 0,
+            lastEditTimestamp: 0,
+            pendingRender: false
         };
 
         activeSessions.set(guildId, session);
@@ -618,7 +620,13 @@ function extractSearchString(content) {
     return `${track} ${artist}`;
 }
 
+const lyricsCache = new Map();
+
 async function fetchLyricsFromLRCLIB(searchQuery) {
+    if (lyricsCache.has(searchQuery)) {
+        console.log(`[API] Returning cached lyrics for "${searchQuery}".`);
+        return lyricsCache.get(searchQuery);
+    }
     try {
         const response = await axios.get('https://lrclib.net/api/search', {
             params: { q: searchQuery },
@@ -627,16 +635,22 @@ async function fetchLyricsFromLRCLIB(searchQuery) {
 
         const results = response.data;
         if (!Array.isArray(results) || results.length === 0) {
+            lyricsCache.set(searchQuery, null);
             return null;
         }
 
         const match = results.find(track => track.syncedLyrics && track.syncedLyrics.trim() !== '');
         
         if (!match) {
+            lyricsCache.set(searchQuery, null);
             return null;
         }
 
-        return parseLRC(match.syncedLyrics);
+        const parsed = parseLRC(match.syncedLyrics);
+        // Cache parsed lyrics (keep cache size <= 50)
+        if (lyricsCache.size > 50) lyricsCache.clear();
+        lyricsCache.set(searchQuery, parsed);
+        return parsed;
 
     } catch (error) {
         console.error(`[API] Request Error: ${error.message}`);
@@ -698,46 +712,55 @@ async function runSyncLoop(guildId) {
     }
 
     if (currentLineIndex !== session.lastLineIndex) {
-        console.log(`[ENGINE DEBUG] Rendering update for guild ${guildId}: lineIndex changed from ${session.lastLineIndex} to ${currentLineIndex} (elapsed: ${elapsedTime.toFixed(1)}s)`);
         session.lastLineIndex = currentLineIndex;
-        
-        let dynamicDisplayBuffer = '';
-        if (currentLineIndex === -1) {
-            dynamicDisplayBuffer += `🎶 *[Instrumental Intro]*\n\n`;
-            const endWindow = Math.min(session.lyrics.length - 1, 2);
-            for (let j = 0; j <= endWindow; j++) {
-                dynamicDisplayBuffer += `🔹 *${session.lyrics[j].text}*\n`;
-            }
-        } else {
-            const startWindow = Math.max(0, currentLineIndex - 2);
-            const endWindow = Math.min(session.lyrics.length - 1, currentLineIndex + 2);
+        session.pendingRender = true;
+    }
 
-            for (let j = startWindow; j <= endWindow; j++) {
-                if (j === currentLineIndex) {
-                    dynamicDisplayBuffer += `👉 **${session.lyrics[j].text}**\n`;
-                } else {
+    if (session.pendingRender) {
+        const now = Date.now();
+        if (now - session.lastEditTimestamp >= 900) {
+            session.lastEditTimestamp = now;
+            session.pendingRender = false;
+
+            const activeIndex = session.lastLineIndex;
+            let dynamicDisplayBuffer = '';
+            if (activeIndex === -1) {
+                dynamicDisplayBuffer += `🎶 *[Instrumental Intro]*\n\n`;
+                const endWindow = Math.min(session.lyrics.length - 1, 2);
+                for (let j = 0; j <= endWindow; j++) {
                     dynamicDisplayBuffer += `🔹 *${session.lyrics[j].text}*\n`;
                 }
-            }
-        }
+            } else {
+                const startWindow = Math.max(0, activeIndex - 2);
+                const endWindow = Math.min(session.lyrics.length - 1, activeIndex + 2);
 
-        try {
-            const buttonRow = new ActionRowBuilder()
-                .addComponents(
-                    new ButtonBuilder()
-                        .setCustomId('sync_back')
-                        .setLabel('⏪ -0.5s')
-                        .setStyle(ButtonStyle.Primary),
-                    new ButtonBuilder()
-                        .setCustomId('sync_forward')
-                        .setLabel('⏩ +0.5s')
-                        .setStyle(ButtonStyle.Primary)
-                );
-            const updateEmbed = EmbedBuilder.from(session.displayMessage.embeds[0])
-                .setDescription(dynamicDisplayBuffer);
-            await session.displayMessage.edit({ embeds: [updateEmbed], components: [buttonRow] });
-        } catch (apiError) {
-            console.error(`[ERROR] Discord API Edit Drop: ${apiError.message}`);
+                for (let j = startWindow; j <= endWindow; j++) {
+                    if (j === activeIndex) {
+                        dynamicDisplayBuffer += `👉 **${session.lyrics[j].text}**\n`;
+                    } else {
+                        dynamicDisplayBuffer += `🔹 *${session.lyrics[j].text}*\n`;
+                    }
+                }
+            }
+
+            try {
+                const buttonRow = new ActionRowBuilder()
+                    .addComponents(
+                        new ButtonBuilder()
+                            .setCustomId('sync_back')
+                            .setLabel('⏪ -0.5s')
+                            .setStyle(ButtonStyle.Primary),
+                        new ButtonBuilder()
+                            .setCustomId('sync_forward')
+                            .setLabel('⏩ +0.5s')
+                            .setStyle(ButtonStyle.Primary)
+                    );
+                const updateEmbed = EmbedBuilder.from(session.displayMessage.embeds[0])
+                    .setDescription(dynamicDisplayBuffer);
+                await session.displayMessage.edit({ embeds: [updateEmbed], components: [buttonRow] });
+            } catch (apiError) {
+                console.error(`[ERROR] Discord API Edit Drop: ${apiError.message}`);
+            }
         }
     }
 }
