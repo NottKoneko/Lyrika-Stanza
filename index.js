@@ -66,6 +66,7 @@ db.serialize(() => {
 
 // Map to hold active song sessions per guild
 const activeSessions = new Map();
+const startingSessions = new Set();
 
 client.once('ready', async () => {
     console.log(`[BOOT] Logged in as ${client.user.tag}`);
@@ -319,6 +320,7 @@ function extractSongInfo(message) {
     
     if (message.embeds?.length > 0) {
         message.embeds.forEach(embed => {
+            if (embed.author?.name) fullText += "\n" + embed.author.name;
             if (embed.title) fullText += "\n" + embed.title;
             if (embed.description) fullText += "\n" + embed.description;
         });
@@ -340,6 +342,7 @@ function isMessagePaused(message) {
     let bodyText = message.content || "";
     if (message.embeds?.length > 0) {
         message.embeds.forEach(embed => {
+            if (embed.author?.name) bodyText += "\n" + embed.author.name;
             if (embed.title) bodyText += "\n" + embed.title;
             if (embed.description) bodyText += "\n" + embed.description;
             if (embed.footer?.text) bodyText += "\n" + embed.footer.text;
@@ -448,70 +451,80 @@ async function handleIncomingMessage(message, eventType) {
         activeSessions.delete(guildId);
     }
 
-    // Fetch the designated output channel
-    const outputChannel = client.channels.cache.get(config.output_channel_id) || await client.channels.fetch(config.output_channel_id).catch(() => null);
-    
-    if (!outputChannel) {
-        console.error(`[ERROR] Could not resolve Output Channel ID: ${config.output_channel_id}`);
+    if (startingSessions.has(guildId)) {
+        console.log(`[STATE] Session setup already in progress for guild ${guildId}. Ignoring duplicate event.`);
         return;
     }
+    startingSessions.add(guildId);
 
-    // Fetch synced tracking data using LRCLIB search API
-    const lyricsData = await fetchLyricsFromLRCLIB(searchString);
-    if (!lyricsData || lyricsData.length === 0) {
-        console.log(`[API] No synced lyrics found for "${searchString}".`);
-        const noLyricsEmbed = new EmbedBuilder()
-            .setColor(0xe74c3c)
+    try {
+        // Fetch the designated output channel
+        const outputChannel = client.channels.cache.get(config.output_channel_id) || await client.channels.fetch(config.output_channel_id).catch(() => null);
+        
+        if (!outputChannel) {
+            console.error(`[ERROR] Could not resolve Output Channel ID: ${config.output_channel_id}`);
+            return;
+        }
+
+        // Fetch synced tracking data using LRCLIB search API
+        const lyricsData = await fetchLyricsFromLRCLIB(searchString);
+        if (!lyricsData || lyricsData.length === 0) {
+            console.log(`[API] No synced lyrics found for "${searchString}".`);
+            const noLyricsEmbed = new EmbedBuilder()
+                .setColor(0xe74c3c)
+                .setTitle(`🎤 Live Lyrics Visualizer`)
+                .setDescription('❌ **Lyrics not available for this track.**')
+                .setFooter({ text: `Query: ${searchString}` });
+            await outputChannel.send({ embeds: [noLyricsEmbed] }).catch(console.error);
+            return;
+        }
+
+        console.log(`[API] Synced lyrics successfully parsed (${lyricsData.length} lines).`);
+
+        // Initialize display canvas message
+        const displayEmbed = new EmbedBuilder()
+            .setColor(0x00ff00)
             .setTitle(`🎤 Live Lyrics Visualizer`)
-            .setDescription('❌ **Lyrics not available for this track.**')
-            .setFooter({ text: `Query: ${searchString}` });
-        await outputChannel.send({ embeds: [noLyricsEmbed] }).catch(console.error);
-        return;
+            .setDescription('Preparing sync track...\n\n*Waiting for playback...*')
+            .setFooter({ text: `Query: ${searchString} | Synced via LRCLIB` });
+
+        const buttonRow = new ActionRowBuilder()
+            .addComponents(
+                new ButtonBuilder()
+                    .setCustomId('sync_back')
+                    .setLabel('⏪ -0.5s')
+                    .setStyle(ButtonStyle.Primary),
+                new ButtonBuilder()
+                    .setCustomId('sync_forward')
+                    .setLabel('⏩ +0.5s')
+                    .setStyle(ButtonStyle.Primary)
+            );
+
+        const displayMessage = await outputChannel.send({ embeds: [displayEmbed], components: [buttonRow] });
+        console.log(`[RENDER] Initial embed posted to Output Channel.`);
+
+        // Build Execution State Context
+        const initialPaused = isMessagePaused(message);
+        const session = {
+            searchString,
+            lyrics: lyricsData,
+            displayMessage,
+            startTime: message.editedTimestamp || message.createdTimestamp,
+            lastLineIndex: -2,
+            intervalId: null,
+            syncOffsetMs: config.sync_offset_ms || 0,
+            isPaused: initialPaused,
+            pauseStartTime: initialPaused ? Date.now() : 0
+        };
+
+        activeSessions.set(guildId, session);
+
+        // Start the interval loop (400ms ticks)
+        session.intervalId = setInterval(() => runSyncLoop(guildId), 400);
+        console.log(`[ENGINE] Sync loop started.`);
+    } finally {
+        startingSessions.delete(guildId);
     }
-
-    console.log(`[API] Synced lyrics successfully parsed (${lyricsData.length} lines).`);
-
-    // Initialize display canvas message
-    const displayEmbed = new EmbedBuilder()
-        .setColor(0x00ff00)
-        .setTitle(`🎤 Live Lyrics Visualizer`)
-        .setDescription('Preparing sync track...\n\n*Waiting for playback...*')
-        .setFooter({ text: `Query: ${searchString} | Synced via LRCLIB` });
-
-    const buttonRow = new ActionRowBuilder()
-        .addComponents(
-            new ButtonBuilder()
-                .setCustomId('sync_back')
-                .setLabel('⏪ -0.5s')
-                .setStyle(ButtonStyle.Primary),
-            new ButtonBuilder()
-                .setCustomId('sync_forward')
-                .setLabel('⏩ +0.5s')
-                .setStyle(ButtonStyle.Primary)
-        );
-
-    const displayMessage = await outputChannel.send({ embeds: [displayEmbed], components: [buttonRow] });
-    console.log(`[RENDER] Initial embed posted to Output Channel.`);
-
-    // Build Execution State Context
-    const initialPaused = isMessagePaused(message);
-    const session = {
-        searchString,
-        lyrics: lyricsData,
-        displayMessage,
-        startTime: message.editedTimestamp || message.createdTimestamp,
-        lastLineIndex: -2,
-        intervalId: null,
-        syncOffsetMs: config.sync_offset_ms || 0,
-        isPaused: initialPaused,
-        pauseStartTime: initialPaused ? Date.now() : 0
-    };
-
-    activeSessions.set(guildId, session);
-
-    // Start the interval loop (400ms ticks)
-    session.intervalId = setInterval(() => runSyncLoop(guildId), 400);
-    console.log(`[ENGINE] Sync loop started.`);
 }
 
 function extractSearchString(content) {
