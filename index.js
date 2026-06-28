@@ -339,24 +339,42 @@ function getMessageText(message) {
 
 function isMessagePaused(message) {
     if (!message) return false;
+
+    // Strategy 1: Check button customIds in components.
+    // Chipbot uses _resume when paused, _pause when playing.
+    let hasResumeButton = false;
+    let hasPauseButton = false;
+    if (message.components?.length > 0) {
+        const allText = extractTextFromComponents(message.components);
+        const lower = allText.toLowerCase();
+        if (lower.includes('_resume')) hasResumeButton = true;
+        if (lower.includes('_pause')) hasPauseButton = true;
+        // Also check component text display for chipbot_pause emoji name
+        if (lower.includes('chipbot_pause')) {
+            console.log(`[DEBUG PAUSE CHECK] Found chipbot_pause in components text. isPaused: true`);
+            return true;
+        }
+    }
+
+    // If resume button exists and no pause button → currently paused
+    if (hasResumeButton && !hasPauseButton) {
+        console.log(`[DEBUG PAUSE CHECK] Found _resume button (no _pause). isPaused: true`);
+        return true;
+    }
+
+    // Strategy 2: Check message content and embeds
     let bodyText = message.content || "";
     if (message.embeds?.length > 0) {
-        message.embeds.forEach((embed, idx) => {
-            if (embed.author?.name) bodyText += `\n[Embed ${idx} Author]: ` + embed.author.name;
-            if (embed.title) bodyText += `\n[Embed ${idx} Title]: ` + embed.title;
-            if (embed.description) bodyText += `\n[Embed ${idx} Desc]: ` + embed.description;
-            if (embed.footer?.text) bodyText += `\n[Embed ${idx} Footer]: ` + embed.footer.text;
-            if (embed.fields?.length > 0) {
-                embed.fields.forEach(f => {
-                    bodyText += `\n[Embed ${idx} Field]: ` + (f.name || '') + " = " + (f.value || '');
-                });
-            }
+        message.embeds.forEach(embed => {
+            if (embed.author?.name) bodyText += "\n" + embed.author.name;
+            if (embed.title) bodyText += "\n" + embed.title;
+            if (embed.description) bodyText += "\n" + embed.description;
+            if (embed.footer?.text) bodyText += "\n" + embed.footer.text;
         });
     }
     const lower = bodyText.toLowerCase();
-    const isPausedResult = lower.includes('chipbot_pause') || lower.includes('paused') || lower.includes('⏸') || lower.includes('playback paused') || lower.includes('currently paused');
-    console.log(`[DEBUG PAUSE CHECK] Extracted Body Text:\n${bodyText}`);
-    console.log(`[DEBUG PAUSE CHECK] Evaluated isPaused: ${isPausedResult}`);
+    const isPausedResult = lower.includes('chipbot_pause') || lower.includes('⏸') || lower.includes('playback paused') || lower.includes('currently paused');
+    console.log(`[DEBUG PAUSE CHECK] bodyText: "${bodyText.trim()}" | resumeBtn: ${hasResumeButton} | pauseBtn: ${hasPauseButton} | isPaused: ${isPausedResult}`);
     return isPausedResult;
 }
 
