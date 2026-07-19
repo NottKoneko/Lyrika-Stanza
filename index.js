@@ -769,6 +769,8 @@ async function runSyncLoop(guildId) {
 const http = require('http');
 const HEALTH_PORT = Number(process.env.SERVER_PORT) || Number(process.env.PORT) || 13656;
 console.log(`[STATUS SERVER] Debug Ports - SERVER_PORT: ${process.env.SERVER_PORT}, PORT: ${process.env.PORT}, resolved: ${HEALTH_PORT}`);
+console.log(`[STATUS SERVER] Debug IPs - SERVER_IP: ${process.env.SERVER_IP}, INTERNAL_IP: ${process.env.INTERNAL_IP}`);
+
 
 http.createServer((req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
