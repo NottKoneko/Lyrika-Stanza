@@ -767,7 +767,7 @@ async function runSyncLoop(guildId) {
 
 // HTTP Health Server for portfolio status monitoring
 const http = require('http');
-const HEALTH_PORT = process.env.PORT || process.env.HEALTH_PORT || 13656;
+const HEALTH_PORT = 13656;
 
 http.createServer((req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
