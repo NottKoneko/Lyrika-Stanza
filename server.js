@@ -116,7 +116,35 @@ app.post('/api/session', (req, res) => {
 });
 
 const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
+
+// Accept WebSocket connections on ANY path — Discord routes them through /.proxy/
+// so the upgrade request arrives at /.proxy/ not just /
+const wss = new WebSocket.Server({ noServer: true });
+
+server.on('upgrade', (request, socket, head) => {
+    console.log(`[WS UPGRADE] Request path: ${request.url} | Origin: ${request.headers.origin || 'none'}`);
+    wss.handleUpgrade(request, socket, head, (ws) => {
+        wss.emit('connection', ws, request);
+    });
+});
+
+// Missing endpoint: proxied lyrics search called by app.js performSearch()
+app.get('/api/lyrics/search', async (req, res) => {
+    const { q } = req.query;
+    console.log(`[ACTIVITY API /api/lyrics/search] Query: "${q}"`);
+    if (!q) return res.status(400).json({ error: 'Missing query param q' });
+    try {
+        const response = await axios.get('https://lrclib.net/api/search', {
+            params: { q },
+            headers: { 'User-Agent': 'Lyrika-Stanza/1.0 (contact@yourdomain.com)' }
+        });
+        res.json(response.data);
+    } catch (e) {
+        console.error('[API /api/lyrics/search] Error:', e.message);
+        res.status(500).json({ error: 'LRCLIB fetch failed' });
+    }
+});
+
 
 // Guild Session Map: guildId -> session object
 const guildSessions = new Map();

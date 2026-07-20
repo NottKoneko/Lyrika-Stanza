@@ -24,17 +24,24 @@ const btnSlowEl = document.getElementById('btnSlow');
 const btnFastEl = document.getElementById('btnFast');
 
 // Discord Activity /.proxy/ path resolver
+// Inside Discord, window.location.hostname ends with 'discordsays.com'
+// We must prefix requests with /.proxy/ to route through Discord's proxy
+const IS_IN_DISCORD = window.location.hostname.endsWith('discordsays.com');
+console.log(`[BOOT] Running inside Discord Activity: ${IS_IN_DISCORD} (host: ${window.location.hostname})`);
+
 function apiFetch(endpoint, options) {
   let url = endpoint;
-  if (window.location.pathname.includes('/.proxy')) {
-    const cleanEndpoint = endpoint.startsWith('/') ? endpoint.slice(1) : endpoint;
-    url = `/.proxy/${cleanEndpoint}`;
+  if (IS_IN_DISCORD) {
+    const clean = endpoint.startsWith('/') ? endpoint.slice(1) : endpoint;
+    url = `/.proxy/${clean}`;
   }
+  console.log(`[API FETCH] ${options?.method || 'GET'} ${url}`);
   return fetch(url, options);
 }
 
 function getGuildId() {
   const urlParams = new URLSearchParams(window.location.search);
+  // guildId is available on discordSdk after ready() resolves
   return (discordSdk && discordSdk.guildId) || urlParams.get('guild_id') || urlParams.get('guildId') || 'default';
 }
 
@@ -90,9 +97,17 @@ async function initDiscordSDK() {
 }
 
 // Connect to WebSocket Server for Real-Time Sync
+// Inside Discord the WS must go through /.proxy/ — otherwise it's blocked by CSP
 function initWebSocket() {
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const wsUrl = `${protocol}//${window.location.host}`;
+  let wsUrl;
+  if (IS_IN_DISCORD) {
+    // Route through Discord proxy: wss://<app_id>.discordsays.com/.proxy/
+    wsUrl = `wss://${window.location.host}/.proxy/`;
+  } else {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    wsUrl = `${protocol}//${window.location.host}`;
+  }
+  console.log(`[WS] Connecting to: ${wsUrl}`);
 
   ws = new WebSocket(wsUrl);
 
@@ -100,9 +115,9 @@ function initWebSocket() {
     console.log('[WS] Connected to Lyrika Activity Sync Server');
     statusTextEl.textContent = 'Connected & Synced';
     
-    // Join guild scope from Discord SDK or URL params
-    const urlParams = new URLSearchParams(window.location.search);
-    const currentGuildId = (discordSdk && discordSdk.guildId) || urlParams.get('guild_id') || 'default';
+    // Join guild scope — guildId is guaranteed to be real by this point (boot awaits SDK)
+    const currentGuildId = getGuildId();
+    console.log(`[WS] Joining guild scope: ${currentGuildId}`);
     ws.send(JSON.stringify({ type: 'JOIN_GUILD', guildId: currentGuildId }));
   };
 
@@ -330,6 +345,13 @@ function formatTime(ms) {
 }
 
 // Boot Client App
-initDiscordSDK();
-initWebSocket();
-initHttpSyncPolling();
+// IMPORTANT: await initDiscordSDK first so discordSdk.guildId is populated
+// before WebSocket JOIN_GUILD and HTTP polling start sending requests.
+// Without this, the first ~10 poll ticks use guildId='default' and see no session.
+async function boot() {
+  await initDiscordSDK();
+  console.log(`[BOOT] SDK ready. GuildId resolved: ${getGuildId()}`);
+  initWebSocket();
+  initHttpSyncPolling();
+}
+boot();
