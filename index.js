@@ -340,27 +340,17 @@ function getMessageText(message) {
 function isMessagePaused(message) {
     if (!message) return false;
 
-    // Strategy 1: Check button customIds in components.
-    // Chipbot uses _resume when paused, _pause when playing.
+    // Strategy 1: Check button customIds in components (Chipbot uses _resume when paused, _pause when playing)
     let hasResumeButton = false;
     let hasPauseButton = false;
     if (message.components?.length > 0) {
-        const allText = extractTextFromComponents(message.components);
-        const lower = allText.toLowerCase();
-        if (lower.includes('_resume')) hasResumeButton = true;
-        if (lower.includes('_pause')) hasPauseButton = true;
-        // Also check component text display for chipbot_pause emoji name
-        if (lower.includes('chipbot_pause')) {
-            console.log(`[DEBUG PAUSE CHECK] Found chipbot_pause in components text. isPaused: true`);
-            return true;
-        }
+        const componentText = extractTextFromComponents(message.components).toLowerCase();
+        if (componentText.includes('_resume')) hasResumeButton = true;
+        if (componentText.includes('_pause')) hasPauseButton = true;
+        if (componentText.includes('chipbot_pause')) return true;
     }
 
-    // If resume button exists and no pause button → currently paused
-    if (hasResumeButton && !hasPauseButton) {
-        console.log(`[DEBUG PAUSE CHECK] Found _resume button (no _pause). isPaused: true`);
-        return true;
-    }
+    if (hasResumeButton && !hasPauseButton) return true;
 
     // Strategy 2: Check message content and embeds
     let bodyText = message.content || "";
@@ -372,10 +362,8 @@ function isMessagePaused(message) {
             if (embed.footer?.text) bodyText += "\n" + embed.footer.text;
         });
     }
-    const lower = bodyText.toLowerCase();
-    const isPausedResult = lower.includes('chipbot_pause') || lower.includes('⏸') || lower.includes('playback paused') || lower.includes('currently paused');
-    console.log(`[DEBUG PAUSE CHECK] bodyText: "${bodyText.trim()}" | resumeBtn: ${hasResumeButton} | pauseBtn: ${hasPauseButton} | isPaused: ${isPausedResult}`);
-    return isPausedResult;
+    const lowerBody = bodyText.toLowerCase();
+    return lowerBody.includes('chipbot_pause') || lowerBody.includes('⏸') || lowerBody.includes('playback paused') || lowerBody.includes('currently paused');
 }
 
 // Helper to bridge sqlite callback into async/await logic
@@ -395,50 +383,35 @@ async function handleIncomingMessage(message, eventType) {
     const guildId = message.guildId;
     if (!guildId) return;
 
-    // Fetch config for this guild if configured
+    // Fetch config for this guild using the promise helper
     const config = await getGuildConfig(guildId).catch(() => null);
+    if (!config || !config.target_bot_id || config.listen_channel_id === 'UNSET' || config.output_channel_id === 'UNSET') return;
 
-    // Resolve Target Bot ID: DB config > ENV variable (Chipbot fallback)
-    const targetBotId = (config && config.target_bot_id && config.target_bot_id !== 'UNSET') 
-        ? config.target_bot_id 
-        : (process.env.TARGET_BOT_USER_ID || null);
+    // Check 1: Channel ID Check
+    if (message.channelId !== config.listen_channel_id) return;
 
-    // Filter 1: Channel ID Check (Enforce dedicated listen channel if configured)
-    if (config && config.listen_channel_id && config.listen_channel_id !== 'UNSET') {
-        if (message.channelId !== config.listen_channel_id) return;
-    }
+    // Check 2: Author ID Check
+    if (message.author?.id !== config.target_bot_id) return;
 
-    // Filter 2: Author ID Check (Enforce target bot match if configured or ENV set)
-    if (targetBotId && message.author?.id !== targetBotId) return;
-
-    // Filter 3: Content Check
+    // Check 3: Content Check
     const messageText = getMessageText(message);
     if (!messageText || messageText.trim() === '') return;
     const lowerText = messageText.toLowerCase();
     if (!activeSessions.has(guildId) && !lowerText.includes('now playing') && !lowerText.includes('playing')) return;
 
-    console.log(`\n======================================================`);
-    console.log(`[EVENT ${eventType}] Target Bot Message Received (Guild: ${guildId}, Message ID: ${message.id})`);
-    console.log(`[PARSER DEBUG] Full Extracted Message Text:\n${messageText}`);
-
     // Clean and parse the message content
     const searchString = extractSearchString(messageText);
-    if (!searchString) {
-        console.log(`[PARSER] Could not extract track/artist data. Ignoring.`);
-        return;
-    }
-    
-    console.log(`[PARSER] Cleaned Search Query Generated: "${searchString}"`);
+    if (!searchString) return;
+
+    console.log(`[TRACK] Detected music update in Guild ${guildId}: "${searchString}"`);
 
     // Prevent duplicate triggers for the same song query, but handle PAUSE / RESUME state changes!
     if (activeSessions.has(guildId)) {
         const currentSession = activeSessions.get(guildId);
-        console.log(`[STATE DEBUG] Active session exists for guild ${guildId}. Current track: "${currentSession.searchString}", Incoming query: "${searchString}"`);
         if (currentSession.searchString === searchString) {
             const paused = isMessagePaused(message);
-            console.log(`[STATE DEBUG] Match found! Session isPaused: ${currentSession.isPaused}, Incoming paused: ${paused}`);
             if (paused && !currentSession.isPaused) {
-                console.log(`[STATE] Playback PAUSED for guild ${guildId}`);
+                console.log(`[STATE] Playback PAUSED for Guild ${guildId}`);
                 currentSession.isPaused = true;
                 currentSession.pauseStartTime = message.editedTimestamp || Date.now();
                 
@@ -450,7 +423,7 @@ async function handleIncomingMessage(message, eventType) {
             } else if (!paused && currentSession.isPaused) {
                 const resumeTimestamp = message.editedTimestamp || Date.now();
                 const pauseDuration = resumeTimestamp - currentSession.pauseStartTime;
-                console.log(`[STATE RESUME DEBUG] Playback RESUMED. pauseDuration: ${pauseDuration}ms (pauseStart: ${currentSession.pauseStartTime}, resume: ${resumeTimestamp})`);
+                console.log(`[STATE] Playback RESUMED for Guild ${guildId} (+${pauseDuration}ms offset)`);
                 currentSession.startTime += pauseDuration;
                 currentSession.isPaused = false;
                 currentSession.lastLineIndex = -2; // Force re-render of current line
@@ -458,7 +431,7 @@ async function handleIncomingMessage(message, eventType) {
             return;
         }
         // Song changed: clear previous loop
-        console.log(`[STATE] Track change detected. Clearing previous session.`);
+        console.log(`[STATE] Track change detected for Guild ${guildId}. Clearing previous session.`);
         clearInterval(currentSession.intervalId);
         if (currentSession.displayMessage) {
             try {
@@ -490,15 +463,11 @@ async function handleIncomingMessage(message, eventType) {
     startingSessions.add(guildId);
 
     try {
-        // Resolve Output Channel: Dedicated DB output channel > Current message channel fallback
-        const outputChannelId = (config && config.output_channel_id && config.output_channel_id !== 'UNSET')
-            ? config.output_channel_id
-            : message.channelId;
-
-        const outputChannel = client.channels.cache.get(outputChannelId) || await client.channels.fetch(outputChannelId).catch(() => null);
+        // Fetch the designated output channel
+        const outputChannel = client.channels.cache.get(config.output_channel_id) || await client.channels.fetch(config.output_channel_id).catch(() => null);
         
         if (!outputChannel) {
-            console.error(`[ERROR] Could not resolve Output Channel ID: ${outputChannelId}`);
+            console.error(`[ERROR] Could not resolve Output Channel ID: ${config.output_channel_id}`);
             return;
         }
 
@@ -548,7 +517,7 @@ async function handleIncomingMessage(message, eventType) {
             startTime: message.editedTimestamp || message.createdTimestamp,
             lastLineIndex: -2,
             intervalId: null,
-            syncOffsetMs: (config && config.sync_offset_ms) || 0,
+            syncOffsetMs: config.sync_offset_ms || 0,
             isPaused: initialPaused,
             pauseStartTime: initialPaused ? (message.editedTimestamp || Date.now()) : 0,
             lastEditTimestamp: 0,
@@ -810,14 +779,6 @@ process.on('unhandledRejection', error => {
 
 // Boot
 console.log(`[BOOT] Attempting login...`);
-console.log(`[BOOT] Environment variable check:`);
-console.log(`  - YOUR_DISCORD_BOT_TOKEN: ${process.env.YOUR_DISCORD_BOT_TOKEN ? `defined (length: ${process.env.YOUR_DISCORD_BOT_TOKEN.length})` : 'undefined'}`);
-console.log(`  - DISCORD_TOKEN: ${process.env.DISCORD_TOKEN ? `defined (length: ${process.env.DISCORD_TOKEN.length})` : 'undefined'}`);
-console.log(`  - BOT_TOKEN: ${process.env.BOT_TOKEN ? `defined (length: ${process.env.BOT_TOKEN.length})` : 'undefined'}`);
-console.log(`  - TOKEN: ${process.env.TOKEN ? `defined (length: ${process.env.TOKEN.length})` : 'undefined'}`);
-console.log(`[BOOT] All environment keys present: [${Object.keys(process.env).join(', ')}]`);
-console.log(`[BOOT] Resolved CONFIG.TOKEN length: ${CONFIG.TOKEN.length}`);
-
 if (CONFIG.TOKEN.length === 0) {
     console.error(`[FATAL] No Discord bot token found! Please set YOUR_DISCORD_BOT_TOKEN in your Wispbyte Startup settings.`);
 } else {
