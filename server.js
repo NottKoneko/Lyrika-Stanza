@@ -178,8 +178,19 @@ module.exports = {
     updateOffset,
     getCurrentSession: () => currentSession,
     startServer: () => {
-        server.listen(PORT, () => {
-            console.log(`[HTTP/WS] Discord Activity Server listening on http://localhost:${PORT}`);
+        server.on('error', (err) => {
+            if (err.code === 'EADDRINUSE') {
+                console.warn(`[HTTP/WS] Port ${PORT} is already in use by host environment. Continuing execution cleanly.`);
+            } else {
+                console.error('[HTTP/WS Server Error]', err.message);
+            }
         });
+        try {
+            server.listen(PORT, () => {
+                console.log(`[HTTP/WS] Discord Activity Server listening on http://localhost:${PORT}`);
+            });
+        } catch (e) {
+            console.warn(`[HTTP/WS] Could not bind port ${PORT}: ${e.message}`);
+        }
     }
 };
