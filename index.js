@@ -565,6 +565,7 @@ async function handleIncomingMessage(message, eventType) {
             displayArtist = parts.slice(1).join(' ').trim();
         }
 
+        console.log(`[BOT -> ACTIVITY] Forwarding track to Activity for Guild ${guildId}: Track="${displayTrack}", Artist="${displayArtist}", LyricsCount=${activityLyrics.length}`);
         updateSession(guildId, {
             track: displayTrack,
             artist: displayArtist,

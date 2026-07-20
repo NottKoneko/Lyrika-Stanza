@@ -70,6 +70,7 @@ app.post('/api/token', async (req, res) => {
 });
 
 // --- HTTP Sync & Polling Endpoint for Discord Activity iframe ---
+let syncLogCounter = 0;
 app.get('/api/sync', (req, res) => {
     const guildId = req.query.guild_id || req.query.guildId || 'default';
     const session = getOrCreateSession(guildId);
@@ -88,6 +89,11 @@ app.get('/api/sync', (req, res) => {
         }
     }
 
+    syncLogCounter++;
+    if (syncLogCounter % 15 === 0 || (session && session.track)) {
+        console.log(`[ACTIVITY API /api/sync] Guild: ${guildId} | Track: "${session ? session.track : 'None'}" | Lines: ${session ? session.lyrics.length : 0} | Active Line: ${activeIndex}`);
+    }
+
     res.json({
         session: session,
         elapsedMs: elapsedMs,
@@ -97,6 +103,7 @@ app.get('/api/sync', (req, res) => {
 
 app.post('/api/offset', (req, res) => {
     const { guild_id, deltaMs } = req.body;
+    console.log(`[ACTIVITY API /api/offset] Guild: ${guild_id} | Delta: ${deltaMs}ms`);
     updateOffset(guild_id, deltaMs || 0);
     res.json({ success: true });
 });
@@ -158,6 +165,7 @@ function updateSession(guildId, newSessionData) {
     if (updated.lyrics && updated.lyrics.length > 0) {
         lastActiveSession = updated;
     }
+    console.log(`[ACTIVITY SESSION UPDATE] Guild: ${key} | Track: "${updated.track}" | Artist: "${updated.artist}" | Lines: ${updated.lyrics ? updated.lyrics.length : 0} | IsPlaying: ${updated.isPlaying}`);
     broadcastToGuild(key, { type: 'SESSION_UPDATE', session: updated });
 }
 
