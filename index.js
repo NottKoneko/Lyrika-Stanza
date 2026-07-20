@@ -395,24 +395,30 @@ async function handleIncomingMessage(message, eventType) {
     const guildId = message.guildId;
     if (!guildId) return;
 
-    // Fetch config for this guild using the promise helper
+    // Fetch config for this guild if configured
     const config = await getGuildConfig(guildId).catch(() => null);
-    if (!config || !config.target_bot_id || config.listen_channel_id === 'UNSET' || config.output_channel_id === 'UNSET') return;
 
-    // Check 1: Channel ID Check
-    if (message.channelId !== config.listen_channel_id) return;
+    // Resolve Target Bot ID: DB config > ENV variable (Chipbot fallback)
+    const targetBotId = (config && config.target_bot_id && config.target_bot_id !== 'UNSET') 
+        ? config.target_bot_id 
+        : (process.env.TARGET_BOT_USER_ID || null);
 
-    // Check 2: Author ID Check
-    if (message.author?.id !== config.target_bot_id) return;
+    // Filter 1: Channel ID Check (Enforce dedicated listen channel if configured)
+    if (config && config.listen_channel_id && config.listen_channel_id !== 'UNSET') {
+        if (message.channelId !== config.listen_channel_id) return;
+    }
 
-    // Check 3: Content Check
+    // Filter 2: Author ID Check (Enforce target bot match if configured or ENV set)
+    if (targetBotId && message.author?.id !== targetBotId) return;
+
+    // Filter 3: Content Check
     const messageText = getMessageText(message);
     if (!messageText || messageText.trim() === '') return;
     const lowerText = messageText.toLowerCase();
     if (!activeSessions.has(guildId) && !lowerText.includes('now playing') && !lowerText.includes('playing')) return;
 
     console.log(`\n======================================================`);
-    console.log(`[EVENT ${eventType}] Target Bot Message Received in Listen Channel (Message ID: ${message.id})`);
+    console.log(`[EVENT ${eventType}] Target Bot Message Received (Guild: ${guildId}, Message ID: ${message.id})`);
     console.log(`[PARSER DEBUG] Full Extracted Message Text:\n${messageText}`);
 
     // Clean and parse the message content
@@ -484,11 +490,15 @@ async function handleIncomingMessage(message, eventType) {
     startingSessions.add(guildId);
 
     try {
-        // Fetch the designated output channel
-        const outputChannel = client.channels.cache.get(config.output_channel_id) || await client.channels.fetch(config.output_channel_id).catch(() => null);
+        // Resolve Output Channel: Dedicated DB output channel > Current message channel fallback
+        const outputChannelId = (config && config.output_channel_id && config.output_channel_id !== 'UNSET')
+            ? config.output_channel_id
+            : message.channelId;
+
+        const outputChannel = client.channels.cache.get(outputChannelId) || await client.channels.fetch(outputChannelId).catch(() => null);
         
         if (!outputChannel) {
-            console.error(`[ERROR] Could not resolve Output Channel ID: ${config.output_channel_id}`);
+            console.error(`[ERROR] Could not resolve Output Channel ID: ${outputChannelId}`);
             return;
         }
 
@@ -538,7 +548,7 @@ async function handleIncomingMessage(message, eventType) {
             startTime: message.editedTimestamp || message.createdTimestamp,
             lastLineIndex: -2,
             intervalId: null,
-            syncOffsetMs: config.sync_offset_ms || 0,
+            syncOffsetMs: (config && config.sync_offset_ms) || 0,
             isPaused: initialPaused,
             pauseStartTime: initialPaused ? (message.editedTimestamp || Date.now()) : 0,
             lastEditTimestamp: 0,
