@@ -29,20 +29,37 @@ const btnFastEl = document.getElementById('btnFast');
 const IS_IN_DISCORD = window.location.hostname.endsWith('discordsays.com');
 console.log(`[BOOT] Running inside Discord Activity: ${IS_IN_DISCORD} (host: ${window.location.hostname})`);
 
-function apiFetch(endpoint, options) {
-  let url = endpoint;
+async function apiFetch(endpoint, options) {
+  let primaryUrl = endpoint;
   if (IS_IN_DISCORD) {
     const clean = endpoint.startsWith('/') ? endpoint.slice(1) : endpoint;
-    url = `/.proxy/${clean}`;
+    primaryUrl = `/.proxy/${clean}`;
   }
-  console.log(`[API FETCH] ${options?.method || 'GET'} ${url}`);
-  return fetch(url, options);
+  
+  try {
+    const res = await fetch(primaryUrl, options);
+    if (res.ok) return res;
+    // Fallback to direct endpoint if proxied path returned an error
+    if (IS_IN_DISCORD) {
+      console.log(`[API FETCH FALLBACK] Retrying direct: ${endpoint}`);
+      const fallbackRes = await fetch(endpoint, options);
+      if (fallbackRes.ok) return fallbackRes;
+    }
+    return res;
+  } catch (err) {
+    if (IS_IN_DISCORD) {
+      try {
+        console.log(`[API FETCH FALLBACK] Retrying direct after error: ${endpoint}`);
+        return await fetch(endpoint, options);
+      } catch (e) {}
+    }
+    throw err;
+  }
 }
 
 function getGuildId() {
   const urlParams = new URLSearchParams(window.location.search);
-  // guildId is available on discordSdk after ready() resolves
-  return (discordSdk && discordSdk.guildId) || urlParams.get('guild_id') || urlParams.get('guildId') || 'default';
+  return (discordSdk && discordSdk.guildId) || urlParams.get('guild_id') || urlParams.get('guildId') || urlParams.get('channel_id') || 'default';
 }
 
 // Initialize Discord SDK & OAuth2 Auth
@@ -53,42 +70,46 @@ async function initDiscordSDK() {
 
     discordSdk = new DiscordSDK(clientId);
     await discordSdk.ready();
-    console.log('[SDK] Discord Activity SDK Ready!');
+    console.log('[SDK] Discord Activity SDK Ready! GuildId:', discordSdk.guildId);
 
     // Re-sync guild scope with SDK resolved guild ID
-    const activeGuildId = discordSdk.guildId || urlParams.get('guild_id') || 'default';
+    const activeGuildId = getGuildId();
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: 'JOIN_GUILD', guildId: activeGuildId }));
     }
 
-    // Request OAuth2 code from Discord SDK
-    const { code } = await discordSdk.commands.authorize({
-      client_id: clientId,
-      response_type: "code",
-      state: "",
-      prompt: "none",
-      scope: ["identify", "guilds"]
-    });
+    // Isolate OAuth authentication so authorization issues do not affect lyrics sync
+    try {
+      const { code } = await discordSdk.commands.authorize({
+        client_id: clientId,
+        response_type: "code",
+        state: "",
+        prompt: "none",
+        scope: ["identify", "guilds"]
+      });
 
-    // Exchange auth code for access token via backend api/token
-    const tokenRes = await apiFetch('/api/token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code })
-    });
+      const tokenRes = await apiFetch('/api/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code })
+      });
 
-    if (tokenRes.ok) {
-      const { access_token } = await tokenRes.json();
-      const auth = await discordSdk.commands.authenticate({ access_token });
-      if (auth && auth.user) {
-        userNameEl.textContent = `${auth.user.username}`;
-        const avatarUrl = auth.user.avatar 
-          ? `https://cdn.discordapp.com/avatars/${auth.user.id}/${auth.user.avatar}.png`
-          : `https://cdn.discordapp.com/embed/avatars/0.png`;
-        userAvatarEl.src = avatarUrl;
+      if (tokenRes.ok) {
+        const { access_token } = await tokenRes.json();
+        const auth = await discordSdk.commands.authenticate({ access_token });
+        if (auth && auth.user) {
+          userNameEl.textContent = `${auth.user.username}`;
+          const avatarUrl = auth.user.avatar 
+            ? `https://cdn.discordapp.com/avatars/${auth.user.id}/${auth.user.avatar}.png`
+            : `https://cdn.discordapp.com/embed/avatars/0.png`;
+          userAvatarEl.src = avatarUrl;
+        }
+      } else {
+        userNameEl.textContent = 'Discord User';
       }
-    } else {
-      userNameEl.textContent = 'Guest Activity User';
+    } catch (oauthErr) {
+      console.warn('[SDK OAuth Notice]', oauthErr.message);
+      userNameEl.textContent = 'Discord User';
     }
   } catch (err) {
     console.warn('[SDK NOTICE] Running outside Discord client or in preview mode:', err.message);
@@ -300,17 +321,25 @@ function initHttpSyncPolling() {
       if (res.ok) {
         const data = await res.json();
         if (data.session) {
-          if (!currentSession || currentSession.track !== data.session.track || (data.session.lyrics && data.session.lyrics.length > 0 && lyricsListEl.children.length === 0)) {
+          const sessionTrack = data.session.track || null;
+          const currentTrack = currentSession ? currentSession.track : null;
+          const sessionLyricsCount = data.session.lyrics ? data.session.lyrics.length : 0;
+          const currentLyricsCount = currentSession && currentSession.lyrics ? currentSession.lyrics.length : 0;
+          const isPlayingChanged = currentSession && currentSession.isPlaying !== data.session.isPlaying;
+
+          if (!currentSession || sessionTrack !== currentTrack || sessionLyricsCount !== currentLyricsCount || isPlayingChanged || (sessionLyricsCount > 0 && lyricsListEl.children.length === 0)) {
             handleSessionUpdate(data.session);
           }
           if (data.session.lyrics && data.session.lyrics.length > 0) {
             handleTick(data.elapsedMs, data.activeIndex);
+            statusTextEl.textContent = 'Connected & Synced';
+          } else {
+            statusTextEl.textContent = data.session.track ? 'Connected • No Synced Lyrics' : 'Connected • Waiting for Music';
           }
-          statusTextEl.textContent = 'Connected & Synced';
         }
       }
     } catch (e) {
-      // Ignore polling fetch errors
+      console.warn('[POLL ERROR]', e.message);
     }
   }, 400);
 }
