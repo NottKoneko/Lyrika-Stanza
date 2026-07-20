@@ -69,21 +69,36 @@ app.post('/api/token', async (req, res) => {
     }
 });
 
-// --- LRCLIB Search Endpoint for Activity Manual Search ---
-app.get('/api/lyrics/search', async (req, res) => {
-    try {
-        const { q, track_name, artist_name } = req.query;
-        let url = 'https://lrclib.net/api/search?q=' + encodeURIComponent(q || '');
-        if (track_name && artist_name) {
-            url = `https://lrclib.net/api/get?track_name=${encodeURIComponent(track_name)}&artist_name=${encodeURIComponent(artist_name)}`;
+// --- HTTP Sync & Polling Endpoint for Discord Activity iframe ---
+app.get('/api/sync', (req, res) => {
+    const guildId = req.query.guild_id || req.query.guildId || 'default';
+    const session = getOrCreateSession(guildId);
+    
+    let activeIndex = -1;
+    let elapsedMs = 0;
+
+    if (session && session.lyrics && session.lyrics.length > 0) {
+        elapsedMs = (Date.now() - session.startTime) + session.syncOffsetMs;
+        for (let i = 0; i < session.lyrics.length; i++) {
+            if (elapsedMs >= session.lyrics[i].timeMs) {
+                activeIndex = i;
+            } else {
+                break;
+            }
         }
-        const response = await axios.get(url, {
-            headers: { 'User-Agent': 'DiscordLyricsActivity/2.0' }
-        });
-        res.json(response.data);
-    } catch (error) {
-        res.status(500).json({ error: 'Failed to search lyrics' });
     }
+
+    res.json({
+        session: session,
+        elapsedMs: elapsedMs,
+        activeIndex: activeIndex
+    });
+});
+
+app.post('/api/offset', (req, res) => {
+    const { guild_id, deltaMs } = req.body;
+    updateOffset(guild_id, deltaMs || 0);
+    res.json({ success: true });
 });
 
 const server = http.createServer(app);

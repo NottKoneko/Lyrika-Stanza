@@ -186,16 +186,30 @@ function seekToLine(index) {
 }
 
 // User Interaction Listeners
-btnSlowEl.addEventListener('click', () => {
+btnSlowEl.addEventListener('click', async () => {
+  const urlParams = new URLSearchParams(window.location.search);
+  const guildId = (discordSdk && discordSdk.guildId) || urlParams.get('guild_id') || 'default';
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type: 'ADJUST_OFFSET', deltaMs: -500 }));
   }
+  await fetch('/api/offset', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ guild_id: guildId, deltaMs: -500 })
+  }).catch(() => {});
 });
 
-btnFastEl.addEventListener('click', () => {
+btnFastEl.addEventListener('click', async () => {
+  const urlParams = new URLSearchParams(window.location.search);
+  const guildId = (discordSdk && discordSdk.guildId) || urlParams.get('guild_id') || 'default';
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type: 'ADJUST_OFFSET', deltaMs: 500 }));
   }
+  await fetch('/api/offset', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ guild_id: guildId, deltaMs: 500 })
+  }).catch(() => {});
 });
 
 searchBtnEl.addEventListener('click', () => performSearch());
@@ -228,6 +242,7 @@ async function performSearch() {
         if (ws && ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: 'SET_SESSION', session: newSession }));
         }
+        handleSessionUpdate(newSession);
         statusTextEl.textContent = 'Track Loaded';
         return;
       }
@@ -238,6 +253,28 @@ async function performSearch() {
     console.error('Search error:', e);
     alert('Failed to search lyrics.');
   }
+}
+
+function initHttpSyncPolling() {
+  setInterval(async () => {
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      const guildId = (discordSdk && discordSdk.guildId) || urlParams.get('guild_id') || 'default';
+      const res = await fetch(`/api/sync?guild_id=${encodeURIComponent(guildId)}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.session && data.session.lyrics && data.session.lyrics.length > 0) {
+          if (!currentSession || currentSession.track !== data.session.track || lyricsListEl.children.length === 0) {
+            handleSessionUpdate(data.session);
+          }
+          handleTick(data.elapsedMs, data.activeIndex);
+          statusTextEl.textContent = 'Connected & Synced';
+        }
+      }
+    } catch (e) {
+      // Ignore polling fetch errors
+    }
+  }, 400);
 }
 
 function parseLRC(lrcText) {
@@ -272,3 +309,4 @@ function formatTime(ms) {
 // Boot Client App
 initDiscordSDK();
 initWebSocket();
+initHttpSyncPolling();
