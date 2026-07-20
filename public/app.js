@@ -78,7 +78,12 @@ async function initDiscordSDK() {
     const clientId = urlParams.get('client_id') || '1519789441143537784'; // Application Client ID
 
     discordSdk = new DiscordSDK(clientId);
-    await discordSdk.ready();
+
+    // 3-second safety timeout race so ready() can never hang the client
+    const readyPromise = discordSdk.ready();
+    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('SDK ready timeout')), 3000));
+    await Promise.race([readyPromise, timeoutPromise]);
+
     console.log('[SDK] Discord Activity SDK Ready! Raw SDK guildId:', discordSdk.guildId, 'channelId:', discordSdk.channelId);
 
     if (discordSdk.guildId) {
@@ -398,13 +403,16 @@ function formatTime(ms) {
 }
 
 // Boot Client App
-// IMPORTANT: await initDiscordSDK first so discordSdk.guildId is populated
-// before WebSocket JOIN_GUILD and HTTP polling start sending requests.
-// Without this, the first ~10 poll ticks use guildId='default' and see no session.
-async function boot() {
-  await initDiscordSDK();
-  console.log(`[BOOT] SDK ready. GuildId resolved: ${getGuildId()}`);
-  initWebSocket();
+// Polling and WebSocket start IMMEDIATELY at startup so the UI is active right away.
+// initDiscordSDK runs asynchronously in the background so SDK RPC delays never freeze the UI.
+function boot() {
+  console.log('[BOOT] Launching Lyrika Activity Client...');
   initHttpSyncPolling();
+  initWebSocket();
+  initDiscordSDK().then(() => {
+    console.log('[BOOT] SDK Background Sync Complete. Active GuildId:', getGuildId());
+  }).catch(err => {
+    console.warn('[BOOT] SDK Async Notice:', err.message);
+  });
 }
 boot();
