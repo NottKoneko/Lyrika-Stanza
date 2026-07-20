@@ -249,9 +249,16 @@ async function performSearch() {
           isPlaying: true
         };
         
+        const urlParams = new URLSearchParams(window.location.search);
+        const activeGuildId = (discordSdk && discordSdk.guildId) || urlParams.get('guild_id') || 'default';
         if (ws && ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: 'SET_SESSION', session: newSession }));
         }
+        await apiFetch('/api/session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ guild_id: activeGuildId, session: newSession })
+        }).catch(() => {});
         handleSessionUpdate(newSession);
         statusTextEl.textContent = 'Track Loaded';
         return;
@@ -273,11 +280,13 @@ function initHttpSyncPolling() {
       const res = await apiFetch(`/api/sync?guild_id=${encodeURIComponent(guildId)}`);
       if (res.ok) {
         const data = await res.json();
-        if (data.session && data.session.lyrics && data.session.lyrics.length > 0) {
-          if (!currentSession || currentSession.track !== data.session.track || lyricsListEl.children.length === 0) {
+        if (data.session) {
+          if (!currentSession || currentSession.track !== data.session.track || (data.session.lyrics && data.session.lyrics.length > 0 && lyricsListEl.children.length === 0)) {
             handleSessionUpdate(data.session);
           }
-          handleTick(data.elapsedMs, data.activeIndex);
+          if (data.session.lyrics && data.session.lyrics.length > 0) {
+            handleTick(data.elapsedMs, data.activeIndex);
+          }
           statusTextEl.textContent = 'Connected & Synced';
         }
       }

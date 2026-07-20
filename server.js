@@ -108,6 +108,13 @@ app.post('/api/offset', (req, res) => {
     res.json({ success: true });
 });
 
+app.post('/api/session', (req, res) => {
+    const { guild_id, session } = req.body;
+    console.log(`[ACTIVITY API /api/session] Guild: ${guild_id} | Manual track set: "${session ? session.track : 'none'}"`);
+    updateSession(guild_id || 'default', session);
+    res.json({ success: true });
+});
+
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
