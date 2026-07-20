@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lyrika-Stanza • Discord Activity</title>
+  
+  <!-- Modern Typography -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Outfit:wght@500;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Ambient Background Mesh -->
+  <div class="ambient-glow glow-pink"></div>
+  <div class="ambient-glow glow-purple"></div>
+
+  <div class="activity-container">
+    <!-- Header Navigation -->
+    <header class="app-header">
+      <div class="brand">
+        <div class="logo-icon">🎤</div>
+        <div class="brand-text">
+          <h1>Lyrika-Stanza</h1>
+          <span class="badge">DISCORD ACTIVITY</span>
+        </div>
+      </div>
+      
+      <div class="user-profile" id="userProfile">
+        <img id="userAvatar" src="https://cdn.discordapp.com/embed/avatars/0.png" alt="Avatar" />
+        <span id="userName">Connecting...</span>
+      </div>
+    </header>
+
+    <!-- Track & Search Bar Container -->
+    <div class="control-banner">
+      <div class="search-box">
+        <span class="search-icon">🔍</span>
+        <input type="text" id="searchInput" placeholder="Search track or artist (e.g. Payphone Maroon 5)..." />
+        <button id="searchBtn">Search</button>
+      </div>
+
+      <div class="offset-controls">
+        <span class="offset-label">Latency Offset:</span>
+        <button id="btnSlow" class="btn-offset">⏪ -0.5s</button>
+        <span id="offsetDisplay" class="offset-val">0ms</span>
+        <button id="btnFast" class="btn-offset">⏩ +0.5s</button>
+      </div>
+    </div>
+
+    <!-- Active Song Hero Section -->
+    <section class="song-card" id="songCard">
+      <div class="album-art-wrap">
+        <div class="album-art-placeholder" id="albumArt">🎵</div>
+      </div>
+      <div class="song-meta">
+        <h2 id="songTitle">Waiting for Music...</h2>
+        <p id="songArtist">Play a track in your server music bot or search above</p>
+        <div class="status-indicator" id="statusIndicator">
+          <span class="dot"></span> <span id="statusText">Listening for audio stream</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Synchronized Lyrics Display Canvas -->
+    <main class="lyrics-canvas" id="lyricsCanvas">
+      <div class="empty-state" id="emptyState">
+        <div class="disc-spin">💿</div>
+        <p>No active lyrics stream</p>
+        <span class="subtext">Start playing music or search for a song to load lyrics</span>
+      </div>
+      <div class="lyrics-list" id="lyricsList"></div>
+    </main>
+
+    <!-- Footer Progress Status Bar -->
+    <footer class="app-footer">
+      <span id="timeElapsed">00:00</span>
+      <div class="progress-bar-wrap">
+        <div class="progress-bar" id="progressBar"></div>
+      </div>
+      <span id="timeTotal">00:00</span>
+    </footer>
+  </div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

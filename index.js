@@ -4,6 +4,7 @@ const util = require('util');
 const path = require('path');
 const fs = require('fs');
 const sqlite3 = require('sqlite3').verbose(); // Using pure JS sqlite3
+const { startServer, updateSession, updateOffset } = require('./server');
 
 // Initialize Discord Client
 const client = new Client({
@@ -547,6 +548,17 @@ async function handleIncomingMessage(message, eventType) {
 
         activeSessions.set(guildId, session);
 
+        // Broadcast session state to Discord Activity WebSocket clients
+        const activityLyrics = lyricsData.map(l => ({ timeMs: Math.round(l.time * 1000), text: l.text }));
+        updateSession({
+            track: searchString,
+            artist: searchString,
+            lyrics: activityLyrics,
+            startTime: session.startTime,
+            syncOffsetMs: session.syncOffsetMs,
+            isPlaying: !initialPaused
+        });
+
         // Start the interval loop (400ms ticks)
         session.intervalId = setInterval(() => runSyncLoop(guildId), 400);
         console.log(`[ENGINE] Sync loop started.`);
@@ -808,12 +820,9 @@ console.log(`  - TOKEN: ${process.env.TOKEN ? `defined (length: ${process.env.TO
 console.log(`[BOOT] All environment keys present: [${Object.keys(process.env).join(', ')}]`);
 console.log(`[BOOT] Resolved CONFIG.TOKEN length: ${CONFIG.TOKEN.length}`);
 
-if (CONFIG.TOKEN.length === 0) {
-    console.error(`[FATAL] No Discord bot token found! Please set YOUR_DISCORD_BOT_TOKEN in your Wispbyte Startup settings.`);
-} else {
-    if (CONFIG.TOKEN.startsWith('"') || CONFIG.TOKEN.endsWith('"') || CONFIG.TOKEN.startsWith("'") || CONFIG.TOKEN.endsWith("'")) {
-        console.warn(`[WARNING] The resolved token starts or ends with quote characters. This will cause Discord to reject it. Please remove any quotes around the value in the Wispbyte panel.`);
-    }
-}
+// Start Discord Embedded App Activity Server
+startServer();
 
-client.login(CONFIG.TOKEN);
+if (CONFIG.TOKEN.length > 0) {
+    client.login(CONFIG.TOKEN);
+}

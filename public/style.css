@@ -1,0 +1,364 @@
+:root {
+  --bg-dark: #07070c;
+  --bg-card: rgba(18, 18, 28, 0.75);
+  --bg-card-border: rgba(255, 255, 255, 0.08);
+  --accent-pink: #ff2a85;
+  --accent-pink-glow: rgba(255, 42, 133, 0.35);
+  --accent-purple: #9b51e0;
+  --accent-purple-glow: rgba(155, 81, 224, 0.35);
+  --text-main: #f3f4f6;
+  --text-muted: #9ca3af;
+  --font-main: 'Inter', -apple-system, sans-serif;
+  --font-heading: 'Outfit', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background-color: var(--bg-dark);
+  color: var(--text-main);
+  font-family: var(--font-main);
+  min-height: 100vh;
+  overflow: hidden;
+  position: relative;
+  user-select: none;
+}
+
+/* Ambient Background Blobs */
+.ambient-glow {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(120px);
+  pointer-events: none;
+  z-index: 0;
+}
+.glow-pink {
+  top: -100px;
+  left: -100px;
+  width: 450px;
+  height: 450px;
+  background: var(--accent-pink-glow);
+}
+.glow-purple {
+  bottom: -100px;
+  right: -100px;
+  width: 450px;
+  height: 450px;
+  background: var(--accent-purple-glow);
+}
+
+.activity-container {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  padding: 16px 24px;
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+/* Header */
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--bg-card-border);
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.logo-icon {
+  font-size: 24px;
+  background: linear-gradient(135deg, var(--accent-pink), var(--accent-purple));
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 14px var(--accent-pink-glow);
+}
+.brand-text h1 {
+  font-family: var(--font-heading);
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+}
+.badge {
+  font-size: 9px;
+  font-family: var(--font-mono);
+  background: rgba(255, 42, 133, 0.15);
+  border: 1px solid var(--accent-pink);
+  color: var(--accent-pink);
+  padding: 2px 6px;
+  border-radius: 6px;
+}
+.user-profile {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 4px 12px 4px 6px;
+  border-radius: 20px;
+  border: 1px solid var(--bg-card-border);
+  font-size: 12px;
+  font-weight: 500;
+}
+.user-profile img {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+}
+
+/* Control Banner */
+.control-banner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 14px;
+}
+.search-box {
+  display: flex;
+  align-items: center;
+  background: var(--bg-card);
+  border: 1px solid var(--bg-card-border);
+  border-radius: 12px;
+  padding: 4px 8px 4px 12px;
+  flex: 1;
+  min-width: 260px;
+  backdrop-filter: blur(10px);
+}
+.search-icon {
+  margin-right: 8px;
+  opacity: 0.6;
+}
+.search-box input {
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text-main);
+  font-size: 13px;
+  width: 100%;
+}
+.search-box button {
+  background: linear-gradient(135deg, var(--accent-pink), var(--accent-purple));
+  border: none;
+  color: white;
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 12px;
+  cursor: pointer;
+  transition: transform 0.15s ease, opacity 0.15s ease;
+}
+.search-box button:hover {
+  opacity: 0.9;
+  transform: scale(1.02);
+}
+
+.offset-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-card);
+  border: 1px solid var(--bg-card-border);
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  backdrop-filter: blur(10px);
+}
+.offset-label {
+  color: var(--text-muted);
+}
+.btn-offset {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--bg-card-border);
+  color: white;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.btn-offset:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+.offset-val {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--accent-pink);
+  min-width: 48px;
+  text-align: center;
+}
+
+/* Song Hero Card */
+.song-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--bg-card-border);
+  border-radius: 16px;
+  padding: 16px;
+  margin-top: 14px;
+  backdrop-filter: blur(12px);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+.album-art-wrap {
+  width: 64px;
+  height: 64px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: linear-gradient(135deg, #1f1c2c, #928dab);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.album-art-placeholder {
+  font-size: 30px;
+}
+.song-meta h2 {
+  font-family: var(--font-heading);
+  font-size: 18px;
+  font-weight: 700;
+}
+.song-meta p {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+.status-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #10b981;
+  margin-top: 6px;
+  font-weight: 500;
+}
+.status-indicator .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: #10b981;
+  box-shadow: 0 0 8px #10b981;
+  animation: pulse 1.8s infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.8); }
+}
+
+/* Lyrics Canvas */
+.lyrics-canvas {
+  flex: 1;
+  margin-top: 14px;
+  background: var(--bg-card);
+  border: 1px solid var(--bg-card-border);
+  border-radius: 20px;
+  overflow-y: auto;
+  position: relative;
+  padding: 40px 24px;
+  backdrop-filter: blur(12px);
+  scroll-behavior: smooth;
+}
+.lyrics-canvas::-webkit-scrollbar {
+  width: 6px;
+}
+.lyrics-canvas::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 10px;
+}
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-muted);
+  text-align: center;
+  gap: 8px;
+}
+.disc-spin {
+  font-size: 48px;
+  animation: spin 8s linear infinite;
+}
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.empty-state .subtext {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+.lyrics-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  align-items: center;
+}
+.lyric-line {
+  font-size: 18px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.35);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  text-align: center;
+  max-width: 650px;
+  padding: 8px 16px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+.lyric-line:hover {
+  color: rgba(255, 255, 255, 0.6);
+}
+.lyric-line.active {
+  font-size: 24px;
+  font-weight: 800;
+  color: #ffffff;
+  background: linear-gradient(90deg, rgba(255, 42, 133, 0.2), rgba(155, 81, 224, 0.2));
+  border-left: 4px solid var(--accent-pink);
+  text-shadow: 0 0 20px var(--accent-pink-glow);
+  transform: scale(1.05);
+  padding: 12px 24px;
+}
+
+/* Footer Progress Bar */
+.app-footer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.progress-bar-wrap {
+  flex: 1;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.progress-bar {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--accent-pink), var(--accent-purple));
+  border-radius: 10px;
+  transition: width 0.3s ease;
+}
