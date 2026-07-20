@@ -426,13 +426,9 @@ async function handleIncomingMessage(message, eventType) {
 
     // Clean display title & artist
     let displayTrack = searchString;
-    let displayArtist = 'Synced Track';
+    let displayArtist = 'Synced Audio';
     if (searchString.includes(' by ')) {
         const parts = searchString.split(' by ');
-        displayTrack = parts[0].trim();
-        displayArtist = parts.slice(1).join(' ').trim();
-    } else if (searchString.includes(' - ')) {
-        const parts = searchString.split(' - ');
         displayTrack = parts[0].trim();
         displayArtist = parts.slice(1).join(' ').trim();
     }
