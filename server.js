@@ -163,15 +163,29 @@ function getOrCreateSession(guildId) {
             isPlaying: false
         });
     }
-    return guildSessions.get(key);
+    const session = guildSessions.get(key);
+
+    // Smart Fallback: If scope is 'default' and empty, return the active playing guild session
+    if (key === 'default' && (!session.track || !session.lyrics || session.lyrics.length === 0)) {
+        for (const [gId, gSession] of guildSessions.entries()) {
+            if (gId !== 'default' && gSession.isPlaying && gSession.lyrics && gSession.lyrics.length > 0) {
+                console.log(`[SESSION FALLBACK] Default client scope auto-linked to active playing server: ${gId}`);
+                return gSession;
+            }
+        }
+    }
+
+    return session;
 }
 
 function broadcastToGuild(guildId, data) {
     const targetKey = String(guildId || 'default');
     const payload = JSON.stringify(data);
     wss.clients.forEach(client => {
-        if (client.readyState === WebSocket.OPEN && client.guildId === targetKey) {
-            client.send(payload);
+        if (client.readyState === WebSocket.OPEN) {
+            if (client.guildId === targetKey || client.guildId === 'default') {
+                client.send(payload);
+            }
         }
     });
 }

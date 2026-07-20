@@ -57,9 +57,18 @@ async function apiFetch(endpoint, options) {
   }
 }
 
+let resolvedGuildId = null;
+
 function getGuildId() {
   const urlParams = new URLSearchParams(window.location.search);
-  return (discordSdk && discordSdk.guildId) || urlParams.get('guild_id') || urlParams.get('guildId') || urlParams.get('channel_id') || 'default';
+  return (
+    resolvedGuildId ||
+    (discordSdk && discordSdk.guildId) ||
+    urlParams.get('guild_id') ||
+    urlParams.get('guildId') ||
+    urlParams.get('channel_id') ||
+    'default'
+  );
 }
 
 // Initialize Discord SDK & OAuth2 Auth
@@ -70,10 +79,25 @@ async function initDiscordSDK() {
 
     discordSdk = new DiscordSDK(clientId);
     await discordSdk.ready();
-    console.log('[SDK] Discord Activity SDK Ready! GuildId:', discordSdk.guildId);
+    console.log('[SDK] Discord Activity SDK Ready! Raw SDK guildId:', discordSdk.guildId, 'channelId:', discordSdk.channelId);
 
-    // Re-sync guild scope with SDK resolved guild ID
+    if (discordSdk.guildId) {
+      resolvedGuildId = discordSdk.guildId;
+    } else if (discordSdk.channelId) {
+      try {
+        const channel = await discordSdk.commands.getChannel({ channel_id: discordSdk.channelId });
+        if (channel && channel.guild_id) {
+          resolvedGuildId = channel.guild_id;
+          console.log('[SDK] Resolved guild_id from getChannel RPC:', resolvedGuildId);
+        }
+      } catch (chErr) {
+        console.warn('[SDK getChannel notice]', chErr.message);
+      }
+    }
+
+    // Re-sync guild scope with resolved guild ID
     const activeGuildId = getGuildId();
+    console.log('[SDK] Final activeGuildId:', activeGuildId);
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: 'JOIN_GUILD', guildId: activeGuildId }));
     }
