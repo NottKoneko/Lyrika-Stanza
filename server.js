@@ -91,9 +91,17 @@ const wss = new WebSocket.Server({ server });
 
 // Guild Session Map: guildId -> session object
 const guildSessions = new Map();
+let lastActiveSession = null;
 
 function getOrCreateSession(guildId) {
     const key = guildId || 'default';
+    if (guildSessions.has(key)) {
+        const s = guildSessions.get(key);
+        if (s.lyrics && s.lyrics.length > 0) return s;
+    }
+    if (lastActiveSession && lastActiveSession.lyrics && lastActiveSession.lyrics.length > 0) {
+        return lastActiveSession;
+    }
     if (!guildSessions.has(key)) {
         guildSessions.set(key, {
             guildId: key,
@@ -113,8 +121,11 @@ function broadcastToGuild(guildId, data) {
     const targetKey = guildId || 'default';
     const payload = JSON.stringify(data);
     wss.clients.forEach(client => {
-        if (client.readyState === WebSocket.OPEN && (client.guildId === targetKey || !client.guildId || targetKey === 'default')) {
-            client.send(payload);
+        if (client.readyState === WebSocket.OPEN) {
+            // Broadcast if matching guild, default scope, or single client connected
+            if (!client.guildId || client.guildId === 'default' || client.guildId === targetKey || wss.clients.size === 1) {
+                client.send(payload);
+            }
         }
     });
 }
@@ -129,6 +140,9 @@ function updateSession(guildId, newSessionData) {
         startTime: newSessionData.startTime || Date.now()
     };
     guildSessions.set(key, updated);
+    if (updated.lyrics && updated.lyrics.length > 0) {
+        lastActiveSession = updated;
+    }
     broadcastToGuild(key, { type: 'SESSION_UPDATE', session: updated });
 }
 

@@ -33,6 +33,12 @@ async function initDiscordSDK() {
     await discordSdk.ready();
     console.log('[SDK] Discord Activity SDK Ready!');
 
+    // Re-sync guild scope with SDK resolved guild ID
+    const activeGuildId = discordSdk.guildId || urlParams.get('guild_id') || 'default';
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'JOIN_GUILD', guildId: activeGuildId }));
+    }
+
     // Request OAuth2 code from Discord SDK
     const { code } = await discordSdk.commands.authorize({
       client_id: clientId,
