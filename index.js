@@ -133,16 +133,10 @@ client.once('ready', async () => {
     ];
 
     try {
-        const existingCommands = await client.application.commands.fetch().catch(() => null);
-        if (existingCommands) {
-            existingCommands.forEach(cmd => {
-                if (cmd.type === 4 || cmd.type === 'PRIMARY_ENTRY_POINT') {
-                    commands.push(cmd);
-                }
-            });
+        for (const cmd of commands) {
+            await client.application.commands.create(cmd).catch(err => console.error(`[BOOT] Command create error (${cmd.name}):`, err.message));
         }
-        await client.application.commands.set(commands);
-        console.log('[BOOT] Successfully registered global slash commands.');
+        console.log('[BOOT] Successfully registered slash commands.');
     } catch (error) {
         console.error('[BOOT] Error registering slash commands:', error);
     }
