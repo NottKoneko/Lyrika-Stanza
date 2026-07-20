@@ -42,7 +42,7 @@ app.get(['/health', '/status'], (req, res) => {
 });
 
 // --- Discord OAuth2 Code Exchange Endpoint for Embedded App SDK ---
-app.post('/api/token', async (req, res) => {
+app.post(['/api/token', '/.proxy/api/token'], async (req, res) => {
     try {
         const { code } = req.body;
         if (!code) {
@@ -71,7 +71,7 @@ app.post('/api/token', async (req, res) => {
 
 // --- HTTP Sync & Polling Endpoint for Discord Activity iframe ---
 let syncLogCounter = 0;
-app.get('/api/sync', (req, res) => {
+app.get(['/api/sync', '/.proxy/api/sync'], (req, res) => {
     const guildId = req.query.guild_id || req.query.guildId || 'default';
     const session = getOrCreateSession(guildId);
     
@@ -101,14 +101,14 @@ app.get('/api/sync', (req, res) => {
     });
 });
 
-app.post('/api/offset', (req, res) => {
+app.post(['/api/offset', '/.proxy/api/offset'], (req, res) => {
     const { guild_id, deltaMs } = req.body;
     console.log(`[ACTIVITY API /api/offset] Guild: ${guild_id} | Delta: ${deltaMs}ms`);
     updateOffset(guild_id, deltaMs || 0);
     res.json({ success: true });
 });
 
-app.post('/api/session', (req, res) => {
+app.post(['/api/session', '/.proxy/api/session'], (req, res) => {
     const { guild_id, session } = req.body;
     console.log(`[ACTIVITY API /api/session] Guild: ${guild_id} | Manual track set: "${session ? session.track : 'none'}"`);
     updateSession(guild_id || 'default', session);
@@ -128,8 +128,8 @@ server.on('upgrade', (request, socket, head) => {
     });
 });
 
-// Missing endpoint: proxied lyrics search called by app.js performSearch()
-app.get('/api/lyrics/search', async (req, res) => {
+// Proxied lyrics search called by app.js performSearch()
+app.get(['/api/lyrics/search', '/.proxy/api/lyrics/search'], async (req, res) => {
     const { q } = req.query;
     console.log(`[ACTIVITY API /api/lyrics/search] Query: "${q}"`);
     if (!q) return res.status(400).json({ error: 'Missing query param q' });

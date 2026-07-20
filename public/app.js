@@ -30,31 +30,22 @@ const IS_IN_DISCORD = window.location.hostname.endsWith('discordsays.com');
 console.log(`[BOOT] Running inside Discord Activity: ${IS_IN_DISCORD} (host: ${window.location.hostname})`);
 
 async function apiFetch(endpoint, options) {
-  let primaryUrl = endpoint;
-  if (IS_IN_DISCORD) {
-    const clean = endpoint.startsWith('/') ? endpoint.slice(1) : endpoint;
-    primaryUrl = `/.proxy/${clean}`;
-  }
-  
   try {
-    const res = await fetch(primaryUrl, options);
+    const res = await fetch(endpoint, options);
     if (res.ok) return res;
-    // Fallback to direct endpoint if proxied path returned an error
-    if (IS_IN_DISCORD) {
-      console.log(`[API FETCH FALLBACK] Retrying direct: ${endpoint}`);
-      const fallbackRes = await fetch(endpoint, options);
-      if (fallbackRes.ok) return fallbackRes;
-    }
-    return res;
-  } catch (err) {
-    if (IS_IN_DISCORD) {
-      try {
-        console.log(`[API FETCH FALLBACK] Retrying direct after error: ${endpoint}`);
-        return await fetch(endpoint, options);
-      } catch (e) {}
-    }
-    throw err;
+  } catch (e) {}
+
+  if (IS_IN_DISCORD) {
+    try {
+      const clean = endpoint.startsWith('/') ? endpoint.slice(1) : endpoint;
+      const proxyUrl = `/.proxy/${clean}`;
+      console.log(`[API FETCH PROXY] Retrying via /.proxy/: ${proxyUrl}`);
+      const proxyRes = await fetch(proxyUrl, options);
+      if (proxyRes.ok) return proxyRes;
+    } catch (e) {}
   }
+
+  return fetch(endpoint, options);
 }
 
 let resolvedGuildId = null;
