@@ -1,0 +1,10 @@
+version: '3.8'
+
+services:
+  discord-lyrics-bot:
+    build: .
+    ports:
+      - "13656:13656"
+    environment:
+      - PORT=13656
+    restart: always
