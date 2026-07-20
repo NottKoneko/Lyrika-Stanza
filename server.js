@@ -89,53 +89,74 @@ app.get('/api/lyrics/search', async (req, res) => {
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
-// Current Active Session state across connected Activity frames
-let currentSession = {
-    track: null,
-    artist: null,
-    albumArt: null,
-    lyrics: [], // [{ timeMs: 12000, text: "Lyric line" }]
-    startTime: Date.now(),
-    syncOffsetMs: 0,
-    isPlaying: false
-};
+// Guild Session Map: guildId -> session object
+const guildSessions = new Map();
 
-function broadcast(data) {
+function getOrCreateSession(guildId) {
+    const key = guildId || 'default';
+    if (!guildSessions.has(key)) {
+        guildSessions.set(key, {
+            guildId: key,
+            track: null,
+            artist: null,
+            albumArt: null,
+            lyrics: [],
+            startTime: Date.now(),
+            syncOffsetMs: 0,
+            isPlaying: false
+        });
+    }
+    return guildSessions.get(key);
+}
+
+function broadcastToGuild(guildId, data) {
+    const targetKey = guildId || 'default';
     const payload = JSON.stringify(data);
     wss.clients.forEach(client => {
-        if (client.readyState === WebSocket.OPEN) {
+        if (client.readyState === WebSocket.OPEN && (client.guildId === targetKey || !client.guildId || targetKey === 'default')) {
             client.send(payload);
         }
     });
 }
 
-function updateSession(newSessionData) {
-    currentSession = {
-        ...currentSession,
+function updateSession(guildId, newSessionData) {
+    const key = guildId || 'default';
+    const current = getOrCreateSession(key);
+    const updated = {
+        ...current,
         ...newSessionData,
+        guildId: key,
         startTime: newSessionData.startTime || Date.now()
     };
-    broadcast({ type: 'SESSION_UPDATE', session: currentSession });
+    guildSessions.set(key, updated);
+    broadcastToGuild(key, { type: 'SESSION_UPDATE', session: updated });
 }
 
-function updateOffset(deltaMs) {
-    currentSession.syncOffsetMs += deltaMs;
-    broadcast({ type: 'OFFSET_UPDATE', syncOffsetMs: currentSession.syncOffsetMs });
+function updateOffset(guildId, deltaMs) {
+    const key = guildId || 'default';
+    const current = getOrCreateSession(key);
+    current.syncOffsetMs += deltaMs;
+    broadcastToGuild(key, { type: 'OFFSET_UPDATE', syncOffsetMs: current.syncOffsetMs });
 }
 
 wss.on('connection', (ws) => {
     console.log('[WS] Client connected to Activity WebSocket server.');
-    
-    // Send current session state on connection
-    ws.send(JSON.stringify({ type: 'SESSION_UPDATE', session: currentSession }));
+    ws.guildId = 'default';
+
+    // Send default/fallback session on initial connect
+    ws.send(JSON.stringify({ type: 'SESSION_UPDATE', session: getOrCreateSession('default') }));
 
     ws.on('message', (message) => {
         try {
             const data = JSON.parse(message);
-            if (data.type === 'ADJUST_OFFSET') {
-                updateOffset(data.deltaMs || 0);
+            if (data.type === 'JOIN_GUILD') {
+                ws.guildId = data.guildId || 'default';
+                console.log(`[WS] Client joined guild scope: ${ws.guildId}`);
+                ws.send(JSON.stringify({ type: 'SESSION_UPDATE', session: getOrCreateSession(ws.guildId) }));
+            } else if (data.type === 'ADJUST_OFFSET') {
+                updateOffset(ws.guildId, data.deltaMs || 0);
             } else if (data.type === 'SET_SESSION') {
-                updateSession(data.session);
+                updateSession(ws.guildId, data.session);
             }
         } catch (e) {
             console.error('[WS ERROR] Failed to parse message:', e.message);
@@ -147,25 +168,27 @@ wss.on('connection', (ws) => {
     });
 });
 
-// Periodic sync tick loop (every 300ms) to sync all connected clients
+// Periodic sync tick loop (every 300ms) per guild session
 setInterval(() => {
-    if (!currentSession.isPlaying || !currentSession.lyrics || currentSession.lyrics.length === 0) return;
-    
-    const elapsedMs = (Date.now() - currentSession.startTime) + currentSession.syncOffsetMs;
-    
-    let activeIndex = -1;
-    for (let i = 0; i < currentSession.lyrics.length; i++) {
-        if (elapsedMs >= currentSession.lyrics[i].timeMs) {
-            activeIndex = i;
-        } else {
-            break;
+    guildSessions.forEach((session, guildId) => {
+        if (!session.isPlaying || !session.lyrics || session.lyrics.length === 0) return;
+        
+        const elapsedMs = (Date.now() - session.startTime) + session.syncOffsetMs;
+        
+        let activeIndex = -1;
+        for (let i = 0; i < session.lyrics.length; i++) {
+            if (elapsedMs >= session.lyrics[i].timeMs) {
+                activeIndex = i;
+            } else {
+                break;
+            }
         }
-    }
 
-    broadcast({
-        type: 'TICK',
-        elapsedMs: elapsedMs,
-        activeIndex: activeIndex
+        broadcastToGuild(guildId, {
+            type: 'TICK',
+            elapsedMs: elapsedMs,
+            activeIndex: activeIndex
+        });
     });
 }, 300);
 

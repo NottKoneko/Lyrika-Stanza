@@ -78,6 +78,11 @@ function initWebSocket() {
   ws.onopen = () => {
     console.log('[WS] Connected to Lyrika Activity Sync Server');
     statusTextEl.textContent = 'Connected & Synced';
+    
+    // Join guild scope from Discord SDK or URL params
+    const urlParams = new URLSearchParams(window.location.search);
+    const currentGuildId = (discordSdk && discordSdk.guildId) || urlParams.get('guild_id') || 'default';
+    ws.send(JSON.stringify({ type: 'JOIN_GUILD', guildId: currentGuildId }));
   };
 
   ws.onmessage = (event) => {

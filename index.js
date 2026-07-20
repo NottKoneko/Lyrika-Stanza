@@ -552,7 +552,7 @@ async function handleIncomingMessage(message, eventType) {
 
         // Broadcast session state to Discord Activity WebSocket clients
         const activityLyrics = lyricsData.map(l => ({ timeMs: Math.round(l.time * 1000), text: l.text }));
-        updateSession({
+        updateSession(guildId, {
             track: searchString,
             artist: searchString,
             lyrics: activityLyrics,
