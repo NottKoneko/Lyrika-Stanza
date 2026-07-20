@@ -23,6 +23,16 @@ const searchBtnEl = document.getElementById('searchBtn');
 const btnSlowEl = document.getElementById('btnSlow');
 const btnFastEl = document.getElementById('btnFast');
 
+// Discord Activity /.proxy/ path resolver
+function apiFetch(endpoint, options) {
+  let url = endpoint;
+  if (window.location.pathname.includes('/.proxy')) {
+    const cleanEndpoint = endpoint.startsWith('/') ? endpoint.slice(1) : endpoint;
+    url = `/.proxy/${cleanEndpoint}`;
+  }
+  return fetch(url, options);
+}
+
 // Initialize Discord SDK & OAuth2 Auth
 async function initDiscordSDK() {
   try {
@@ -48,8 +58,8 @@ async function initDiscordSDK() {
       scope: ["identify", "guilds"]
     });
 
-    // Exchange auth code for access token via backend /api/token
-    const tokenRes = await fetch('/api/token', {
+    // Exchange auth code for access token via backend api/token
+    const tokenRes = await apiFetch('/api/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ code })
@@ -192,7 +202,7 @@ btnSlowEl.addEventListener('click', async () => {
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type: 'ADJUST_OFFSET', deltaMs: -500 }));
   }
-  await fetch('/api/offset', {
+  await apiFetch('/api/offset', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ guild_id: guildId, deltaMs: -500 })
@@ -205,7 +215,7 @@ btnFastEl.addEventListener('click', async () => {
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type: 'ADJUST_OFFSET', deltaMs: 500 }));
   }
-  await fetch('/api/offset', {
+  await apiFetch('/api/offset', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ guild_id: guildId, deltaMs: 500 })
@@ -223,7 +233,7 @@ async function performSearch() {
 
   try {
     statusTextEl.textContent = `Searching "${query}"...`;
-    const res = await fetch(`/api/lyrics/search?q=${encodeURIComponent(query)}`);
+    const res = await apiFetch(`/api/lyrics/search?q=${encodeURIComponent(query)}`);
     const data = await res.json();
 
     if (Array.isArray(data) && data.length > 0) {
@@ -260,7 +270,7 @@ function initHttpSyncPolling() {
     try {
       const urlParams = new URLSearchParams(window.location.search);
       const guildId = (discordSdk && discordSdk.guildId) || urlParams.get('guild_id') || 'default';
-      const res = await fetch(`/api/sync?guild_id=${encodeURIComponent(guildId)}`);
+      const res = await apiFetch(`/api/sync?guild_id=${encodeURIComponent(guildId)}`);
       if (res.ok) {
         const data = await res.json();
         if (data.session && data.session.lyrics && data.session.lyrics.length > 0) {
