@@ -406,9 +406,16 @@ async function handleIncomingMessage(message, eventType) {
     // Must be a bot message or contain playing keywords
     if (!activeSessions.has(guildId) && !lowerText.includes('now playing') && !lowerText.includes('playing')) return;
 
-    // Clean and parse the message content
-    const searchString = extractSearchString(messageText);
+    // Parse the message content into searchable query and display names
+    const parsed = extractSearchString(messageText);
+    if (!parsed) return;
+    const { query: searchString, track: displayTrack, artist: displayArtist } = parsed;
     if (!searchString) return;
+
+    console.log(`\n======================================================`);
+    console.log(`[EVENT ${eventType}] Target Bot Message Received (Guild: ${guildId}, Message ID: ${message.id})`);
+    console.log(`[PARSER DEBUG] Full Extracted Message Text:\n${messageText}`);
+    console.log(`[PARSER] Cleaned Search Query: "${searchString}" | Track: "${displayTrack}" | Artist: "${displayArtist}"`);
 
     // Optional DB config checks for filtering target bot / listen channel if set
     const config = await getGuildConfig(guildId).catch(() => null);
@@ -417,20 +424,6 @@ async function handleIncomingMessage(message, eventType) {
     }
     if (config && config.listen_channel_id && config.listen_channel_id !== 'UNSET') {
         if (message.channelId !== config.listen_channel_id) return;
-    }
-
-    console.log(`\n======================================================`);
-    console.log(`[EVENT ${eventType}] Target Bot Message Received (Guild: ${guildId}, Message ID: ${message.id})`);
-    console.log(`[PARSER DEBUG] Full Extracted Message Text:\n${messageText}`);
-    console.log(`[PARSER] Cleaned Search Query Generated: "${searchString}"`);
-
-    // Clean display title & artist
-    let displayTrack = searchString;
-    let displayArtist = 'Synced Audio';
-    if (searchString.includes(' by ')) {
-        const parts = searchString.split(' by ');
-        displayTrack = parts[0].trim();
-        displayArtist = parts.slice(1).join(' ').trim();
     }
 
     // Handle existing session & pause/resume state
@@ -555,8 +548,8 @@ function extractSearchString(content) {
     for (let line of lines) {
         line = line.trim();
         if (
-            (line.toLowerCase().includes(' by ') || line.includes(' - ')) && 
-            !line.toLowerCase().includes('now playing') && 
+            (line.toLowerCase().includes(' by ') || line.includes(' - ')) &&
+            !line.toLowerCase().includes('now playing') &&
             !line.toLowerCase().includes('requested by')
         ) {
             targetLine = line;
@@ -583,34 +576,38 @@ function extractSearchString(content) {
     cleaned = cleaned.replace(/\[\d{2}:\d{2}(:\d{2})?\]/g, '');
     cleaned = cleaned.replace(/\(\d{2}:\d{2}(:\d{2})?\)/g, '');
     
-    // 5. Strip common Markdown structural characters (###, *, _, #, -)
+    // 5. Strip common Markdown structural characters (###, *, _, #)
     cleaned = cleaned.replace(/[#*_]/g, '');
     
     // 6. Clean up excessive whitespace and trim
     cleaned = cleaned.replace(/\s+/g, ' ').trim();
-
     cleaned = cleaned.replace(/^[-–—\s]+|[-–—\s]+$/g, '').trim();
 
-    // 7. Attempt to isolate Track and Artist
+    // 7. Isolate Track and Artist, preserving both for display and search
     let track = '';
     let artist = '';
 
     if (cleaned.toLowerCase().includes(' by ')) {
         const parts = cleaned.split(/ by /i);
-        track = parts[0].trim();
-        artist = parts.slice(1).join(' ').trim();
+        track = parts[0].trim().replace(/^[-–—\s]+|[-–—\s]+$/g, '').trim();
+        artist = parts.slice(1).join(' by ').trim().replace(/^[-–—\s]+|[-–—\s]+$/g, '').trim();
     } else if (cleaned.includes(' - ')) {
         const parts = cleaned.split(/ - /);
-        track = parts[0].trim();
-        artist = parts.slice(1).join(' ').trim();
+        track = parts[0].trim().replace(/^[-–—\s]+|[-–—\s]+$/g, '').trim();
+        artist = parts.slice(1).join(' - ').trim().replace(/^[-–—\s]+|[-–—\s]+$/g, '').trim();
     } else {
-        return cleaned;
+        // No separator found — use full cleaned string as query, no artist
+        return { query: cleaned, track: cleaned, artist: 'Synced Audio' };
     }
 
-    track = track.replace(/^[-–—\s]+|[-–—\s]+$/g, '').trim();
-    artist = artist.replace(/^[-–—\s]+|[-–—\s]+$/g, '').trim();
+    if (!track) return null;
 
-    return `${track} ${artist}`;
+    // Return structured result: query for LRCLIB, track+artist for display
+    return {
+        query: `${track} ${artist}`,   // LRCLIB search string (no separator needed)
+        track,
+        artist: artist || 'Synced Audio'
+    };
 }
 
 const lyricsCache = new Map();
