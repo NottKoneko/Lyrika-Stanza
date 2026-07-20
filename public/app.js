@@ -1,4 +1,11 @@
-import { DiscordSDK } from "https://cdn.jsdelivr.net/npm/@discord/embedded-app-sdk@2.5.0/+esm";
+import { DiscordSDK, patchUrlMappings } from "https://cdn.jsdelivr.net/npm/@discord/embedded-app-sdk@2.5.0/+esm";
+
+// Initialize Discord URL proxy patcher for Embedded App SDK
+try {
+  patchUrlMappings([]);
+} catch (e) {
+  console.warn('[SDK] patchUrlMappings notice:', e.message);
+}
 
 let discordSdk = null;
 let ws = null;
@@ -24,28 +31,30 @@ const btnSlowEl = document.getElementById('btnSlow');
 const btnFastEl = document.getElementById('btnFast');
 
 // Discord Activity /.proxy/ path resolver
-// Inside Discord, window.location.hostname ends with 'discordsays.com'
-// We must prefix requests with /.proxy/ to route through Discord's proxy
 const IS_IN_DISCORD = window.location.hostname.endsWith('discordsays.com');
 console.log(`[BOOT] Running inside Discord Activity: ${IS_IN_DISCORD} (host: ${window.location.hostname})`);
 
 async function apiFetch(endpoint, options) {
+  const cleanEndpoint = endpoint.startsWith('/') ? endpoint.slice(1) : endpoint;
+  const targetUrl = IS_IN_DISCORD ? `/.proxy/${cleanEndpoint}` : `/${cleanEndpoint}`;
+  
+  console.log(`[API FETCH] ${options?.method || 'GET'} -> ${targetUrl}`);
   try {
-    const res = await fetch(endpoint, options);
+    const res = await fetch(targetUrl, options);
     if (res.ok) return res;
-  } catch (e) {}
-
-  if (IS_IN_DISCORD) {
-    try {
-      const clean = endpoint.startsWith('/') ? endpoint.slice(1) : endpoint;
-      const proxyUrl = `/.proxy/${clean}`;
-      console.log(`[API FETCH PROXY] Retrying via /.proxy/: ${proxyUrl}`);
-      const proxyRes = await fetch(proxyUrl, options);
-      if (proxyRes.ok) return proxyRes;
-    } catch (e) {}
+    // Direct fallback if proxy path returned non-200
+    if (IS_IN_DISCORD) {
+      console.log(`[API FETCH FALLBACK] Retrying direct: /${cleanEndpoint}`);
+      return await fetch(`/${cleanEndpoint}`, options);
+    }
+    return res;
+  } catch (err) {
+    if (IS_IN_DISCORD) {
+      console.log(`[API FETCH FALLBACK ERROR] Retrying direct: /${cleanEndpoint}`);
+      return await fetch(`/${cleanEndpoint}`, options);
+    }
+    throw err;
   }
-
-  return fetch(endpoint, options);
 }
 
 let resolvedGuildId = null;
