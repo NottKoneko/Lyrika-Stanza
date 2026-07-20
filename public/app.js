@@ -27,7 +27,7 @@ const btnFastEl = document.getElementById('btnFast');
 async function initDiscordSDK() {
   try {
     const urlParams = new URLSearchParams(window.location.search);
-    const clientId = urlParams.get('client_id') || '1256000000000000000'; // Fallback Client ID
+    const clientId = urlParams.get('client_id') || '1519789441143537784'; // Application Client ID
 
     discordSdk = new DiscordSDK(clientId);
     await discordSdk.ready();
