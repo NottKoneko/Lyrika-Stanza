@@ -31,6 +31,16 @@ const PORT = process.env.PORT || process.env.SERVER_PORT || 3000;
 const CLIENT_ID = process.env.CLIENT_ID || process.env.DISCORD_CLIENT_ID || '';
 const CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET || process.env.CLIENT_SECRET || '';
 
+// --- Health & Status Endpoint ---
+app.get(['/health', '/status'], (req, res) => {
+    res.json({
+        status: 'online',
+        bot: 'Lyrika-Stanza',
+        uptime: Math.floor(process.uptime()),
+        timestamp: new Date().toISOString()
+    });
+});
+
 // --- Discord OAuth2 Code Exchange Endpoint for Embedded App SDK ---
 app.post('/api/token', async (req, res) => {
     try {

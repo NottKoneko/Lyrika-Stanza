@@ -779,34 +779,6 @@ async function runSyncLoop(guildId) {
     }
 }
 
-// HTTP Health Server for portfolio status monitoring
-const http = require('http');
-const HEALTH_PORT = Number(process.env.SERVER_PORT) || Number(process.env.PORT) || 13656;
-console.log(`[STATUS SERVER] Debug Ports - SERVER_PORT: ${process.env.SERVER_PORT}, PORT: ${process.env.PORT}, resolved: ${HEALTH_PORT}`);
-console.log(`[STATUS SERVER] Debug IPs - SERVER_IP: ${process.env.SERVER_IP}, INTERNAL_IP: ${process.env.INTERNAL_IP}`);
-
-
-http.createServer((req, res) => {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET');
-    
-    if (req.url === '/health' || req.url === '/status' || req.url === '/') {
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-            status: 'online',
-            bot: 'Lyrika-Stanza',
-            uptime: Math.floor(process.uptime()),
-            wsPing: client.ws ? client.ws.ping : null,
-            timestamp: new Date().toISOString()
-        }));
-    } else {
-        res.writeHead(404);
-        res.end();
-    }
-}).listen(HEALTH_PORT, '0.0.0.0', () => {
-    console.log(`[STATUS SERVER] Health check endpoint active on 0.0.0.0:${HEALTH_PORT}`);
-});
-
 // Global unhandled promise rejection catching to keep bot alive
 process.on('unhandledRejection', error => {
     console.error(`[FATAL] Unhandled promise rejection:`, error);
