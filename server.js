@@ -120,17 +120,9 @@ const wss = new WebSocket.Server({ server });
 
 // Guild Session Map: guildId -> session object
 const guildSessions = new Map();
-let lastActiveSession = null;
 
 function getOrCreateSession(guildId) {
-    const key = guildId || 'default';
-    if (guildSessions.has(key)) {
-        const s = guildSessions.get(key);
-        if (s.lyrics && s.lyrics.length > 0) return s;
-    }
-    if (lastActiveSession && lastActiveSession.lyrics && lastActiveSession.lyrics.length > 0) {
-        return lastActiveSession;
-    }
+    const key = String(guildId || 'default');
     if (!guildSessions.has(key)) {
         guildSessions.set(key, {
             guildId: key,
@@ -147,20 +139,17 @@ function getOrCreateSession(guildId) {
 }
 
 function broadcastToGuild(guildId, data) {
-    const targetKey = guildId || 'default';
+    const targetKey = String(guildId || 'default');
     const payload = JSON.stringify(data);
     wss.clients.forEach(client => {
-        if (client.readyState === WebSocket.OPEN) {
-            // Broadcast if matching guild, default scope, or single client connected
-            if (!client.guildId || client.guildId === 'default' || client.guildId === targetKey || wss.clients.size === 1) {
-                client.send(payload);
-            }
+        if (client.readyState === WebSocket.OPEN && client.guildId === targetKey) {
+            client.send(payload);
         }
     });
 }
 
 function updateSession(guildId, newSessionData) {
-    const key = guildId || 'default';
+    const key = String(guildId || 'default');
     const current = getOrCreateSession(key);
     const updated = {
         ...current,
@@ -169,9 +158,6 @@ function updateSession(guildId, newSessionData) {
         startTime: newSessionData.startTime || Date.now()
     };
     guildSessions.set(key, updated);
-    if (updated.lyrics && updated.lyrics.length > 0) {
-        lastActiveSession = updated;
-    }
     console.log(`[ACTIVITY SESSION UPDATE] Guild: ${key} | Track: "${updated.track}" | Artist: "${updated.artist}" | Lines: ${updated.lyrics ? updated.lyrics.length : 0} | IsPlaying: ${updated.isPlaying}`);
     broadcastToGuild(key, { type: 'SESSION_UPDATE', session: updated });
 }

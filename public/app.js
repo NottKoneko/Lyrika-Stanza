@@ -33,6 +33,11 @@ function apiFetch(endpoint, options) {
   return fetch(url, options);
 }
 
+function getGuildId() {
+  const urlParams = new URLSearchParams(window.location.search);
+  return (discordSdk && discordSdk.guildId) || urlParams.get('guild_id') || urlParams.get('guildId') || 'default';
+}
+
 // Initialize Discord SDK & OAuth2 Auth
 async function initDiscordSDK() {
   try {
@@ -275,8 +280,7 @@ async function performSearch() {
 function initHttpSyncPolling() {
   setInterval(async () => {
     try {
-      const urlParams = new URLSearchParams(window.location.search);
-      const guildId = (discordSdk && discordSdk.guildId) || urlParams.get('guild_id') || 'default';
+      const guildId = getGuildId();
       const res = await apiFetch(`/api/sync?guild_id=${encodeURIComponent(guildId)}`);
       if (res.ok) {
         const data = await res.json();
