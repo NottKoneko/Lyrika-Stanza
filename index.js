@@ -457,6 +457,7 @@ async function handleIncomingMessage(message, eventType) {
         // Song changed: clear previous loop
         console.log(`[STATE] Track change detected. Clearing previous session.`);
         clearInterval(currentSession.intervalId);
+        updateSession(guildId, { isPlaying: false, track: 'Waiting for Music...', artist: '', lyrics: [] });
         if (currentSession.displayMessage) {
             try {
                 const buttonRow = new ActionRowBuilder()
@@ -552,9 +553,21 @@ async function handleIncomingMessage(message, eventType) {
 
         // Broadcast session state to Discord Activity WebSocket clients
         const activityLyrics = lyricsData.map(l => ({ timeMs: Math.round(l.time * 1000), text: l.text }));
+        let displayTrack = searchString;
+        let displayArtist = 'Synced Track';
+        if (searchString.includes(' by ')) {
+            const parts = searchString.split(' by ');
+            displayTrack = parts[0].trim();
+            displayArtist = parts.slice(1).join(' ').trim();
+        } else if (searchString.includes(' - ')) {
+            const parts = searchString.split(' - ');
+            displayTrack = parts[0].trim();
+            displayArtist = parts.slice(1).join(' ').trim();
+        }
+
         updateSession(guildId, {
-            track: searchString,
-            artist: searchString,
+            track: displayTrack,
+            artist: displayArtist,
             lyrics: activityLyrics,
             startTime: session.startTime,
             syncOffsetMs: session.syncOffsetMs,
