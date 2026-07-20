@@ -398,63 +398,73 @@ async function handleIncomingMessage(message, eventType) {
     const guildId = message.guildId;
     if (!guildId) return;
 
-    // Fetch config for this guild using the promise helper
-    const config = await getGuildConfig(guildId).catch(() => null);
-    if (!config || !config.target_bot_id || config.listen_channel_id === 'UNSET' || config.output_channel_id === 'UNSET') return;
-
-    // Check 1: Channel ID Check
-    if (message.channelId !== config.listen_channel_id) return;
-
-    // Check 2: Author ID Check
-    if (message.author?.id !== config.target_bot_id) return;
-
-    // Check 3: Content Check
+    // Check 1: Extract message text
     const messageText = getMessageText(message);
     if (!messageText || messageText.trim() === '') return;
     const lowerText = messageText.toLowerCase();
-    if (!activeSessions.has(guildId) && !lowerText.includes('now playing') && !lowerText.includes('playing')) return;
 
-    console.log(`\n======================================================`);
-    console.log(`[EVENT ${eventType}] Target Bot Message Received in Listen Channel (Message ID: ${message.id})`);
-    console.log(`[PARSER DEBUG] Full Extracted Message Text:\n${messageText}`);
+    // Must be a bot message or contain playing keywords
+    if (!activeSessions.has(guildId) && !lowerText.includes('now playing') && !lowerText.includes('playing')) return;
 
     // Clean and parse the message content
     const searchString = extractSearchString(messageText);
-    if (!searchString) {
-        console.log(`[PARSER] Could not extract track/artist data. Ignoring.`);
-        return;
+    if (!searchString) return;
+
+    // Optional DB config checks for filtering target bot / listen channel if set
+    const config = await getGuildConfig(guildId).catch(() => null);
+    if (config && config.target_bot_id && config.target_bot_id !== 'UNSET') {
+        if (message.author?.id !== config.target_bot_id) return;
     }
-    
+    if (config && config.listen_channel_id && config.listen_channel_id !== 'UNSET') {
+        if (message.channelId !== config.listen_channel_id) return;
+    }
+
+    console.log(`\n======================================================`);
+    console.log(`[EVENT ${eventType}] Target Bot Message Received (Guild: ${guildId}, Message ID: ${message.id})`);
+    console.log(`[PARSER DEBUG] Full Extracted Message Text:\n${messageText}`);
     console.log(`[PARSER] Cleaned Search Query Generated: "${searchString}"`);
 
-    // Prevent duplicate triggers for the same song query, but handle PAUSE / RESUME state changes!
+    // Clean display title & artist
+    let displayTrack = searchString;
+    let displayArtist = 'Synced Track';
+    if (searchString.includes(' by ')) {
+        const parts = searchString.split(' by ');
+        displayTrack = parts[0].trim();
+        displayArtist = parts.slice(1).join(' ').trim();
+    } else if (searchString.includes(' - ')) {
+        const parts = searchString.split(' - ');
+        displayTrack = parts[0].trim();
+        displayArtist = parts.slice(1).join(' ').trim();
+    }
+
+    // Handle existing session & pause/resume state
     if (activeSessions.has(guildId)) {
         const currentSession = activeSessions.get(guildId);
-        console.log(`[STATE DEBUG] Active session exists for guild ${guildId}. Current track: "${currentSession.searchString}", Incoming query: "${searchString}"`);
         if (currentSession.searchString === searchString) {
             const paused = isMessagePaused(message);
-            console.log(`[STATE DEBUG] Match found! Session isPaused: ${currentSession.isPaused}, Incoming paused: ${paused}`);
             if (paused && !currentSession.isPaused) {
                 console.log(`[STATE] Playback PAUSED for guild ${guildId}`);
                 currentSession.isPaused = true;
                 currentSession.pauseStartTime = message.editedTimestamp || Date.now();
-                
-                try {
-                    const pausedEmbed = EmbedBuilder.from(currentSession.displayMessage.embeds[0])
-                        .setDescription('⏸️ **Playback Paused**\n\n*Lyrics sync frozen until resumed.*');
-                    currentSession.displayMessage.edit({ embeds: [pausedEmbed] }).catch((err) => console.error(`[ERROR] Edit paused embed failed: ${err.message}`));
-                } catch (e) {}
+                updateSession(guildId, { isPlaying: false });
+                if (currentSession.displayMessage) {
+                    try {
+                        const pausedEmbed = EmbedBuilder.from(currentSession.displayMessage.embeds[0])
+                            .setDescription('⏸️ **Playback Paused**\n\n*Lyrics sync frozen until resumed.*');
+                        currentSession.displayMessage.edit({ embeds: [pausedEmbed] }).catch(() => {});
+                    } catch (e) {}
+                }
             } else if (!paused && currentSession.isPaused) {
                 const resumeTimestamp = message.editedTimestamp || Date.now();
                 const pauseDuration = resumeTimestamp - currentSession.pauseStartTime;
-                console.log(`[STATE RESUME DEBUG] Playback RESUMED. pauseDuration: ${pauseDuration}ms (pauseStart: ${currentSession.pauseStartTime}, resume: ${resumeTimestamp})`);
                 currentSession.startTime += pauseDuration;
                 currentSession.isPaused = false;
-                currentSession.lastLineIndex = -2; // Force re-render of current line
+                currentSession.lastLineIndex = -2;
+                updateSession(guildId, { isPlaying: true, startTime: currentSession.startTime });
             }
             return;
         }
-        // Song changed: clear previous loop
+        // Song changed: clear previous session
         console.log(`[STATE] Track change detected. Clearing previous session.`);
         clearInterval(currentSession.intervalId);
         updateSession(guildId, { isPlaying: false, track: 'Waiting for Music...', artist: '', lyrics: [] });
@@ -462,122 +472,81 @@ async function handleIncomingMessage(message, eventType) {
             try {
                 const buttonRow = new ActionRowBuilder()
                     .addComponents(
-                        new ButtonBuilder()
-                            .setCustomId('sync_back')
-                            .setLabel('⏪ -0.5s')
-                            .setStyle(ButtonStyle.Primary)
-                            .setDisabled(true),
-                        new ButtonBuilder()
-                            .setCustomId('sync_forward')
-                            .setLabel('⏩ +0.5s')
-                            .setStyle(ButtonStyle.Primary)
-                            .setDisabled(true)
+                        new ButtonBuilder().setCustomId('sync_back').setLabel('⏪ -0.5s').setStyle(ButtonStyle.Primary).setDisabled(true),
+                        new ButtonBuilder().setCustomId('sync_forward').setLabel('⏩ +0.5s').setStyle(ButtonStyle.Primary).setDisabled(true)
                     );
                 const finalEmbed = EmbedBuilder.from(currentSession.displayMessage.embeds[0])
                     .setDescription('🎵 *Track playback finished or skipped.*');
-                await currentSession.displayMessage.edit({ embeds: [finalEmbed], components: [buttonRow] });
-            } catch(e) { /* ignore */ }
+                await currentSession.displayMessage.edit({ embeds: [finalEmbed], components: [buttonRow] }).catch(() => {});
+            } catch(e) {}
         }
         activeSessions.delete(guildId);
     }
 
-    if (startingSessions.has(guildId)) {
-        console.log(`[STATE] Session setup already in progress for guild ${guildId}. Ignoring duplicate event.`);
-        return;
-    }
+    if (startingSessions.has(guildId)) return;
     startingSessions.add(guildId);
 
     try {
-        // Fetch the designated output channel
-        const outputChannel = client.channels.cache.get(config.output_channel_id) || await client.channels.fetch(config.output_channel_id).catch(() => null);
-        
-        if (!outputChannel) {
-            console.error(`[ERROR] Could not resolve Output Channel ID: ${config.output_channel_id}`);
-            return;
-        }
-
-        // Fetch synced tracking data using LRCLIB search API
+        // Fetch synced lyrics from LRCLIB
         const lyricsData = await fetchLyricsFromLRCLIB(searchString);
         if (!lyricsData || lyricsData.length === 0) {
             console.log(`[API] No synced lyrics found for "${searchString}".`);
-            const noLyricsEmbed = new EmbedBuilder()
-                .setColor(0xe74c3c)
-                .setTitle(`🎤 Live Lyrics Visualizer`)
-                .setDescription('❌ **Lyrics not available for this track.**')
-                .setFooter({ text: `Query: ${searchString}` });
-            await outputChannel.send({ embeds: [noLyricsEmbed] }).catch(console.error);
+            updateSession(guildId, { track: displayTrack, artist: `${displayArtist} (No Synced Lyrics)`, lyrics: [], isPlaying: false });
             return;
         }
 
-        console.log(`[API] Synced lyrics successfully parsed (${lyricsData.length} lines).`);
-
-        // Initialize display canvas message
-        const displayEmbed = new EmbedBuilder()
-            .setColor(0x00ff00)
-            .setTitle(`🎤 Live Lyrics Visualizer`)
-            .setDescription('Preparing sync track...\n\n*Waiting for playback...*')
-            .setFooter({ text: `Query: ${searchString} | Synced via LRCLIB` });
-
-        const buttonRow = new ActionRowBuilder()
-            .addComponents(
-                new ButtonBuilder()
-                    .setCustomId('sync_back')
-                    .setLabel('⏪ -0.5s')
-                    .setStyle(ButtonStyle.Primary),
-                new ButtonBuilder()
-                    .setCustomId('sync_forward')
-                    .setLabel('⏩ +0.5s')
-                    .setStyle(ButtonStyle.Primary)
-            );
-
-        const displayMessage = await outputChannel.send({ embeds: [displayEmbed], components: [buttonRow] });
-        console.log(`[RENDER] Initial embed posted to Output Channel.`);
-
-        // Build Execution State Context
-        const initialPaused = isMessagePaused(message);
-        const session = {
-            searchString,
-            lyrics: lyricsData,
-            displayMessage,
-            startTime: message.editedTimestamp || message.createdTimestamp,
-            lastLineIndex: -2,
-            intervalId: null,
-            syncOffsetMs: config.sync_offset_ms || 0,
-            isPaused: initialPaused,
-            pauseStartTime: initialPaused ? (message.editedTimestamp || Date.now()) : 0,
-            lastEditTimestamp: 0,
-            pendingRender: false
-        };
-
-        activeSessions.set(guildId, session);
-
-        // Broadcast session state to Discord Activity WebSocket clients
+        console.log(`[API] Synced lyrics parsed (${lyricsData.length} lines) for "${displayTrack}".`);
         const activityLyrics = lyricsData.map(l => ({ timeMs: Math.round(l.time * 1000), text: l.text }));
-        let displayTrack = searchString;
-        let displayArtist = 'Synced Track';
-        if (searchString.includes(' by ')) {
-            const parts = searchString.split(' by ');
-            displayTrack = parts[0].trim();
-            displayArtist = parts.slice(1).join(' ').trim();
-        } else if (searchString.includes(' - ')) {
-            const parts = searchString.split(' - ');
-            displayTrack = parts[0].trim();
-            displayArtist = parts.slice(1).join(' ').trim();
-        }
+        const initialPaused = isMessagePaused(message);
+        const startTimeMs = message.editedTimestamp || message.createdTimestamp || Date.now();
 
+        // IMMEDIATELY UPDATE DISCORD ACTIVITY SESSION
         console.log(`[BOT -> ACTIVITY] Forwarding track to Activity for Guild ${guildId}: Track="${displayTrack}", Artist="${displayArtist}", LyricsCount=${activityLyrics.length}`);
         updateSession(guildId, {
             track: displayTrack,
             artist: displayArtist,
             lyrics: activityLyrics,
-            startTime: session.startTime,
-            syncOffsetMs: session.syncOffsetMs,
+            startTime: startTimeMs,
+            syncOffsetMs: config ? (config.sync_offset_ms || 0) : 0,
             isPlaying: !initialPaused
         });
 
-        // Start the interval loop (400ms ticks)
-        session.intervalId = setInterval(() => runSyncLoop(guildId), 400);
-        console.log(`[ENGINE] Sync loop started.`);
+        // Optional text channel visualizer embed update
+        if (config && config.output_channel_id && config.output_channel_id !== 'UNSET') {
+            const outputChannel = client.channels.cache.get(config.output_channel_id) || await client.channels.fetch(config.output_channel_id).catch(() => null);
+            if (outputChannel) {
+                const displayEmbed = new EmbedBuilder()
+                    .setColor(0x00ff00)
+                    .setTitle(`🎤 Live Lyrics Visualizer`)
+                    .setDescription('Preparing sync track...\n\n*Waiting for playback...*')
+                    .setFooter({ text: `Query: ${searchString} | Synced via LRCLIB` });
+
+                const buttonRow = new ActionRowBuilder()
+                    .addComponents(
+                        new ButtonBuilder().setCustomId('sync_back').setLabel('⏪ -0.5s').setStyle(ButtonStyle.Primary),
+                        new ButtonBuilder().setCustomId('sync_forward').setLabel('⏩ +0.5s').setStyle(ButtonStyle.Primary)
+                    );
+
+                const displayMessage = await outputChannel.send({ embeds: [displayEmbed], components: [buttonRow] }).catch(() => null);
+                if (displayMessage) {
+                    const session = {
+                        searchString,
+                        lyrics: lyricsData,
+                        displayMessage,
+                        startTime: startTimeMs,
+                        lastLineIndex: -2,
+                        intervalId: null,
+                        syncOffsetMs: config ? (config.sync_offset_ms || 0) : 0,
+                        isPaused: initialPaused,
+                        pauseStartTime: initialPaused ? (message.editedTimestamp || Date.now()) : 0,
+                        lastEditTimestamp: 0,
+                        pendingRender: false
+                    };
+                    activeSessions.set(guildId, session);
+                    session.intervalId = setInterval(() => runSyncLoop(guildId), 400);
+                }
+            }
+        }
     } finally {
         startingSessions.delete(guildId);
     }
