@@ -6,6 +6,9 @@
   "scripts": {
     "start": "node index.js"
   },
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "dependencies": {
     "@discord/embedded-app-sdk": "^2.5.0",
     "axios": "^1.7.2",
